@@ -1,0 +1,10 @@
+{
+  "product": "QWEMU PC",
+  "version": "1.2.0",
+  "channel": "beta",
+  "platform": "tauri-2-rust-native-audio-browser",
+  "releaseDate": "2026-11-18",
+  "build": "qwemu-music-1.2.0-infinity-ultimate",
+  "design": "QWEMU MUSIC — Infinity Ultimate",
+  "designRelease": "QWEMU MUSIC 1.2.0 — Infinity Ultimate"
+}
