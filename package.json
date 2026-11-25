@@ -4,8 +4,12 @@
   "version": "1.5.0",
   "type": "module",
   "scripts": {
+    "tauri": "tauri",
     "check:frontend": "node --check public/assets/main.js && node --check public/assets/library-store.js && node --check public/assets/playback-queue.js && node --check public/assets/desktop-bridge.js && node --check public/assets/audio-adapter.js && node --check public/assets/storage-adapter.js",
     "test": "node --test tests/library-store.test.mjs tests/playback-queue.test.mjs && node tests/smoke.mjs",
     "check": "npm run check:frontend && npm test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.6"
   }
 }

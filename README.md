@@ -16,7 +16,7 @@
 
 ## Сборка на Windows
 
-Требуются Windows 10/11 x64, Node.js 22+ (для проверок), Rust stable с MSVC toolchain и Visual Studio Build Tools (C++ build tools). WebView2 Runtime обычно уже установлен в Windows 10/11; установщик Tauri настроен на загрузку bootstrapper при необходимости.
+Требуются Windows 10/11 x64, Node.js 22+, Rust stable с MSVC toolchain и Visual Studio Build Tools (C++ build tools). WebView2 Runtime обычно уже установлен в Windows 10/11; установщик Tauri настроен на загрузку bootstrapper при необходимости.
 
 1. Установи Rust с https://rustup.rs/ и выбери MSVC toolchain.
 2. Установи Visual Studio Build Tools с компонентом **Desktop development with C++**.
@@ -26,10 +26,12 @@
 Команды вручную из корня репозитория:
 
 ```powershell
-cargo install tauri-cli --version "^2" --locked
-cargo tauri dev --config src-tauri/tauri.conf.json
-cargo tauri build --config src-tauri/tauri.conf.json
+npm install --no-package-lock
+npm run tauri -- dev --config src-tauri/tauri.conf.json
+npm run tauri -- build --config src-tauri/tauri.conf.json
 ```
+
+Tauri CLI закреплён на версии 2.12.6 в `package.json`. Он устанавливается npm как готовый CLI-wrapper; Rust-код приложения всё равно компилируется Cargo.
 
 Артефакты сборки находятся в `src-tauri/target/release/bundle/`.
 
@@ -40,7 +42,8 @@ cargo tauri build --config src-tauri/tauri.conf.json
 Для разработки:
 
 ```powershell
-cargo tauri dev --config src-tauri/tauri.conf.json
+npm install --no-package-lock
+npm run tauri -- dev --config src-tauri/tauri.conf.json
 ```
 
 ## Локальные данные и приватность

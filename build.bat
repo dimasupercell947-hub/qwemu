@@ -9,18 +9,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
-cargo tauri --version 2>nul | findstr /B /C:"tauri-cli 2." >nul
-if errorlevel 1 (
-  echo [INFO] Installing or updating Tauri CLI 2...
-  cargo install tauri-cli --version "^2" --locked --force
+if not exist "node_modules\.bin\tauri.cmd" (
+  echo [INFO] Installing pinned Tauri CLI 2.12.6...
+  call npm install --no-package-lock
   if errorlevel 1 (
-    echo [ERROR] Tauri CLI 2 installation failed.
+    echo [ERROR] Tauri CLI installation failed.
     exit /b 1
   )
 )
 
 echo [INFO] Building Windows installers (NSIS and MSI)...
-cargo tauri build --config src-tauri/tauri.conf.json
+call npm run tauri -- build --config src-tauri/tauri.conf.json
 if errorlevel 1 (
   echo [ERROR] Tauri build failed.
   exit /b 1

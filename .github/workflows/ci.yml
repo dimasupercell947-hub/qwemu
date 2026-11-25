@@ -2,17 +2,23 @@ name: Desktop CI
 
 on:
   push:
-    branches: [main, "desktop/**"]
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows:
     name: Windows x64 checks and installers
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +33,12 @@ jobs:
         with:
           components: rustfmt
 
+      - name: Install pinned Tauri CLI
+        run: npm install --no-package-lock
+
+      - name: Verify Tauri CLI version
+        run: npm run tauri -- --version
+
       - name: Frontend syntax, unit and smoke tests
         run: npm run check
 
@@ -36,11 +48,8 @@ jobs:
       - name: Rust and Tauri compile check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      - name: Install Tauri CLI 2
-        run: cargo install tauri-cli --version "^2" --locked
-
       - name: Build Windows installers
-        run: cargo tauri build --config src-tauri/tauri.conf.json
+        run: npm run tauri -- build --config src-tauri/tauri.conf.json
 
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
