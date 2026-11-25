@@ -1,0 +1,8 @@
+body { min-width: 960px; min-height: 640px; overflow-x: hidden; }
+.app-shell { min-height: calc(100vh - 100px); }
+.sidebar, .player { user-select: none; }
+.brand { -webkit-user-drag: none; }
+.file-label { position: relative; }
+.file-label input { cursor: pointer; }
+@media (max-height: 700px) { .sidebar { height: calc(100vh - 88px); } .player { height: 88px; } body { padding-bottom: 88px; } .view { padding-top: 24px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
