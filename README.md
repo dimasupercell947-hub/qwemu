@@ -58,7 +58,7 @@ npm run tauri -- dev --config src-tauri/tauri.conf.json
 check.bat
 ```
 
-Windows CI выполняет frontend unit/smoke tests, Rust fmt/check и собирает оба установщика NSIS EXE и MSI. Файлы прикрепляются к артефактам запуска Actions на 14 дней. Установщики пока не подписаны цифровым сертификатом, поэтому Windows может показывать предупреждение SmartScreen. Скачивай их только из доверенного запуска GitHub Actions.
+Windows CI выполняет frontend unit/smoke tests, проверку Rust formatting и полную Tauri-сборку обоих установщиков NSIS EXE и MSI. Полная сборка сама компилирует Rust в release-профиле без отдельной повторной debug-компиляции. Для дополнительного debug-проверочного прохода локально запусти `check.bat --rust`. Файлы прикрепляются к артефактам запуска Actions на 14 дней. Установщики пока не подписаны цифровым сертификатом, поэтому Windows может показывать предупреждение SmartScreen. Скачивай их только из доверенного запуска GitHub Actions.
 
 ## Структура
 

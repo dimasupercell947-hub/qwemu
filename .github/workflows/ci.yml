@@ -45,9 +45,6 @@ jobs:
       - name: Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
-      - name: Rust and Tauri compile check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
       - name: Build Windows installers
         run: npm run tauri -- build --config src-tauri/tauri.conf.json
 

@@ -38,11 +38,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [INFO] Checking Rust and Tauri dependencies...
-cargo check --manifest-path src-tauri/Cargo.toml
-if errorlevel 1 (
-  echo [ERROR] Cargo check failed.
-  exit /b 1
+if /I "%~1"=="--rust" (
+  echo [INFO] Running the additional Rust debug compile check...
+  cargo check --manifest-path src-tauri/Cargo.toml
+  if errorlevel 1 (
+    echo [ERROR] Cargo check failed.
+    exit /b 1
+  )
 )
 
 echo [SUCCESS] All project checks passed.
