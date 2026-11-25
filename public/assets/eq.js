@@ -2,11 +2,11 @@
   'use strict';
   const audio=document.querySelector('#audio'), transport=document.querySelector('.transport'), volume=document.querySelector('.volume-control');
   if(!audio||!transport||!volume||window.__QWEMU_EQ__)return;window.__QWEMU_EQ__=true;
-  const key='qwemu.eq.v1', bands=[['60 Hz','lowshelf',60],['250 Hz','peaking',250],['1 kHz','peaking',1000],['4 kHz','peaking',4000],['12 kHz','highshelf',12000]];
-  const presets={'Плоский':[0,0,0,0,0],'Бас':[5,3,0,-1,1],'Рок':[3,2,-1,2,3],'Поп':[2,1,1,2,1],'Вокал':[-2,-1,2,3,1],'Тихий вечер':[2,0,1,0,-1]};
+  const key='qwemu.eq.v1', bands=[['31 Hz','lowshelf',31],['62 Hz','peaking',62],['125 Hz','peaking',125],['250 Hz','peaking',250],['500 Hz','peaking',500],['1 kHz','peaking',1000],['2 kHz','peaking',2000],['4 kHz','peaking',4000],['8 kHz','peaking',8000],['16 kHz','highshelf',16000]];
+  const presets={'Плоский':[0,0,0,0,0,0,0,0,0,0],'Бас':[5,4,3,2,1,0,-1,-1,0,1],'Рок':[3,4,3,1,-1,0,2,3,4,3],'Поп':[1,2,2,1,0,1,2,2,1,1],'Вокал':[-3,-2,-1,0,1,2,3,3,2,1],'Тихий вечер':[2,1,0,0,1,1,0,-1,-1,-2]};
   const clamp=x=>Math.max(-12,Math.min(12,Number(x)||0)), reduced=()=>document.documentElement.classList.contains('reduce-motion')||matchMedia('(prefers-reduced-motion: reduce)').matches;
   let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}')||{};}catch{}
-  let gains=Array.isArray(saved.gains)&&saved.gains.length===5?saved.gains.map(clamp):[0,0,0,0,0],enabled=saved.enabled!==false;
+  let gains=Array.isArray(saved.gains)&&saved.gains.length===10?saved.gains.map(clamp):(saved.gains.length===5?[saved.gains[0],saved.gains[0],saved.gains[1],saved.gains[1],saved.gains[1],saved.gains[2],saved.gains[2],saved.gains[3],saved.gains[4],saved.gains[4]].map(clamp):[0,0,0,0,0,0,0,0,0,0]),enabled=saved.enabled!==false;
   let ac=null,src=null,filters=[],analyser=null,raf=0;
   function graph(){if(ac)return true;const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('Web Audio API недоступен в этом WebView');ac=new AC();src=ac.createMediaElementSource(audio);filters=bands.map(b=>{const f=ac.createBiquadFilter();f.type=b[1];f.frequency.value=b[2];if(b[1]==='peaking')f.Q.value=1;return f;});analyser=ac.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;src.connect(filters[0]);filters.forEach((f,i)=>f.connect(filters[i+1]||analyser));analyser.connect(ac.destination);apply();return true;}
   function save(){try{localStorage.setItem(key,JSON.stringify({gains,enabled}));}catch{}}
@@ -24,7 +24,7 @@
   bands.forEach((b,i)=>{let label=document.createElement('label');label.className='eq-band';label.innerHTML='<span class="eq-val">0 dB</span><input type="range" min="-12" max="12" step=".5" value="'+gains[i]+'" aria-label="'+b[0]+' gain"><span class="eq-name">'+b[0]+'</span>';let input=label.querySelector('input');const text=label.querySelector('.eq-val');text.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';input.addEventListener('input',()=>{gains[i]=clamp(input.value);text.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';select.value='custom';if(init())apply();});holder.append(label);});
   function sync(){holder.querySelectorAll('input').forEach((el,i)=>{el.value=gains[i];el.previousElementSibling.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';});}
   select.addEventListener('change',()=>{if(!presets[select.value])return;gains=[...presets[select.value]];sync();if(init())apply();});
-  panel.querySelector('.eq-reset').addEventListener('click',()=>{gains=[0,0,0,0,0];select.value='Плоский';sync();if(init())apply();});
+  panel.querySelector('.eq-reset').addEventListener('click',()=>{gains=[0,0,0,0,0,0,0,0,0,0];select.value='Плоский';sync();if(init())apply();});
   toggle.addEventListener('click',()=>{if(init()){enabled=!enabled;apply();}});
   const close=()=>{panel.hidden=true;open.classList.remove('active');open.focus();};panel.querySelector('.eq-close').addEventListener('click',close);
   open.addEventListener('click',()=>{panel.hidden=!panel.hidden;open.classList.toggle('active',!panel.hidden);if(!panel.hidden)init();});
