@@ -74,4 +74,17 @@ export class LibraryStore {
       request.onerror = () => reject(request.error || new Error('Не удалось прочитать аудиофайл.'));
     });
   }
+
+  async remove(id) {
+    if (typeof id !== 'string' || !id) throw new TypeError('Для удаления нужен идентификатор трека.');
+    const db = await this.open();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction([TRACKS, AUDIO], 'readwrite');
+      tx.objectStore(TRACKS).delete(id);
+      tx.objectStore(AUDIO).delete(id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Не удалось удалить трек из медиатеки.'));
+      tx.onabort = () => reject(tx.error || new Error('Удаление трека было отменено.'));
+    });
+  }
 }

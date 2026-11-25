@@ -22,8 +22,12 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           if ($tag -ne "v$version") { throw "Tag $tag does not match app version v$version" }
-      - name: Run checks
+      - name: Frontend checks
         run: npm run check
+      - name: Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+      - name: Rust compile check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
       - name: Build NSIS and MSI installers

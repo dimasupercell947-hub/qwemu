@@ -5,16 +5,18 @@
 
 ## Возможности
 
-- Локальный музыкальный плеер с импортом MP3, WAV, FLAC, OGG, M4A, AAC и AIFF.
-- Сохранение импортированной медиатеки между запусками приложения через IndexedDB.
+- Локальный музыкальный плеер с импортом MP3, WAV, FLAC, OGG, OGA, M4A и AAC.
+- Сохранение импортированной медиатеки между запусками приложения через IndexedDB (лимит 2 ГиБ, 512 МиБ на файл).
 - Плейлисты, избранное, поиск, повтор, громкость и темы оформления.
+- Удаление треков с освобождением места в хранилище.
+- Очередь воспроизведения учитывает текущий плейлист или избранное.
 - Воспроизведение локальных файлов без отправки аудио на сервер.
 - Оконное приложение Windows с установщиками NSIS (.exe) и MSI.
 - Проверки Rust и frontend-кода в GitHub Actions.
 
 ## Сборка на Windows
 
-Требуются Windows 10/11 x64, Rust stable с MSVC toolchain и Visual Studio Build Tools (C++ build tools). Для запуска WebView2 Runtime должен быть установлен; установщик Tauri может загрузить bootstrapper при необходимости.
+Требуются Windows 10/11 x64, Node.js 22+ (для проверок), Rust stable с MSVC toolchain и Visual Studio Build Tools (C++ build tools). WebView2 Runtime обычно уже установлен в Windows 10/11; установщик Tauri настроен на загрузку bootstrapper при необходимости.
 
 1. Установи Rust с https://rustup.rs/ и выбери MSVC toolchain.
 2. Установи Visual Studio Build Tools с компонентом **Desktop development with C++**.
@@ -30,6 +32,8 @@ cargo tauri build --config src-tauri/tauri.conf.json
 ```
 
 Артефакты сборки находятся в `src-tauri/target/release/bundle/`.
+
+Поддерживаемые расширения: `.mp3`, `.wav`, `.flac`, `.ogg`, `.oga`, `.m4a`, `.aac`. AIFF пока не принимается: штатный аудиодекодер Windows WebView2 не гарантирует его воспроизведение.
 
 ## Запуск без установки
 
@@ -51,7 +55,7 @@ cargo tauri dev --config src-tauri/tauri.conf.json
 check.bat
 ```
 
-CI дополнительно выполняет проверку JavaScript, smoke-тесты и `cargo check` на Windows. Успешный CI не заменяет тестирование установщика на реальном ПК.
+Windows CI выполняет frontend unit/smoke tests, Rust fmt/check и собирает оба установщика NSIS EXE и MSI. Файлы прикрепляются к артефактам запуска Actions на 14 дней. Установщики пока не подписаны цифровым сертификатом, поэтому Windows может показывать предупреждение SmartScreen. Скачивай их только из доверенного запуска GitHub Actions.
 
 ## Структура
 

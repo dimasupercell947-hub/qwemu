@@ -1,30 +1,53 @@
 name: Desktop CI
+
 on:
   push:
     branches: [main, "desktop/**"]
   pull_request:
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   windows:
-    name: Windows x64 checks
+    name: Windows x64 checks and installers
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Frontend checks
+
+      - name: Frontend syntax, unit and smoke tests
         run: npm run check
+
       - name: Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
       - name: Rust and Tauri compile check
         run: cargo check --manifest-path src-tauri/Cargo.toml
-      - name: Install Tauri CLI
+
+      - name: Install Tauri CLI 2
         run: cargo install tauri-cli --version "^2" --locked
-      - name: Build desktop binary without packaging
-        run: cargo tauri build --config src-tauri/tauri.conf.json --no-bundle
+
+      - name: Build Windows installers
+        run: cargo tauri build --config src-tauri/tauri.conf.json
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: QWEMU-MUSIC-Windows-1.5.0
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14

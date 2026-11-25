@@ -5,6 +5,7 @@ import { BrowserAudioAdapter } from './audio-adapter.js';
 import { fingerprintFile } from './file-fingerprint.js';
 import { CloudWriteQueue } from './cloud-write-queue.js';
 import { LibraryStore } from './library-store.js';
+import { buildPlaybackQueue } from './playback-queue.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
@@ -29,7 +30,7 @@ const state = {
   page: 'home', tracks: [], favorites: Array.isArray(savedFavorites)?savedFavorites.filter(value=>typeof value==='string').slice(0,5000):[],
   playlists: Array.isArray(savedPlaylists)?savedPlaylists.filter(item=>item&&typeof item.id==='string'&&typeof item.name==='string'&&Array.isArray(item.trackIds)).slice(0,300):[],
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeat: false,
-  currentId: null, playRequestId: 0, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
+  currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -84,6 +85,7 @@ function saveLocal() {
 }
 function applyTheme() {
   const selected = themes[state.settings.theme] ? state.settings.theme : 'dark-red';
+  document.documentElement.dataset.theme = selected;
   document.documentElement.classList.toggle('reduce-motion', state.settings.reducedMotion);
   const [bg, red, orange] = themes[selected];
   document.documentElement.style.setProperty('--bg', bg);
@@ -113,8 +115,13 @@ function visibleTracks() {
   return list;
 }
 function renderTracks(list) {
-  if (!list.length) return `<div class="empty-state"><b>Здесь пока пусто</b>Добавь свои аудиофайлы — они останутся в памяти текущей вкладки браузера.<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac" multiple></label></div>`;
-  return `<div class="track-list">${list.map(track => `<article class="track-row"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>${escapeHtml(track.title)}</b><span>${escapeHtml(track.artist)}${track.duration ? ` · ${formatTime(track.duration)}` : ''}</span></div><div class="row-actions"><button class="small-button" data-action="play-track" data-id="${escapeHtml(track.id)}" aria-label="Воспроизвести ${escapeHtml(track.title)}">▶</button><button class="small-button ${state.favorites.includes(track.id)?'active':''}" data-action="favorite" data-id="${escapeHtml(track.id)}" aria-label="Избранное">♥</button>${state.page==='playlists'&&state.activePlaylist?`<button class="small-button" data-action="remove-playlist-track" data-id="${escapeHtml(track.id)}" aria-label="Убрать из плейлиста">−</button>`:`<button class="small-button" data-action="add-playlist-track" data-id="${escapeHtml(track.id)}" aria-label="Добавить в плейлист">＋</button>`}</div></article>`).join('')}</div>`;
+  if (!list.length) {
+    const emptyText = desktopRuntime
+      ? 'Добавь аудиофайлы. Они сохранятся в медиатеке и останутся доступны после перезапуска.'
+      : 'Добавь свои аудиофайлы — они останутся в памяти текущей вкладки браузера.';
+    return `<div class="empty-state"><b>Здесь пока пусто</b>${emptyText}<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div>`;
+  }
+  return `<div class="track-list">${list.map(track => `<article class="track-row"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>${escapeHtml(track.title)}</b><span>${escapeHtml(track.artist)}${track.duration ? ` · ${formatTime(track.duration)}` : ''}</span></div><div class="row-actions"><button class="small-button" data-action="play-track" data-id="${escapeHtml(track.id)}" aria-label="Воспроизвести ${escapeHtml(track.title)}">▶</button><button class="small-button ${state.favorites.includes(track.id)?'active':''}" data-action="favorite" data-id="${escapeHtml(track.id)}" aria-label="Избранное">♥</button>${state.page==='playlists'&&state.activePlaylist?`<button class="small-button" data-action="remove-playlist-track" data-id="${escapeHtml(track.id)}" aria-label="Убрать из плейлиста">−</button>`:`<button class="small-button" data-action="add-playlist-track" data-id="${escapeHtml(track.id)}" aria-label="Добавить в плейлист">＋</button>`}${desktopRuntime?`<button class="small-button delete-track-button" data-action="delete-track" data-id="${escapeHtml(track.id)}" aria-label="Удалить ${escapeHtml(track.title)} из медиатеки" title="Удалить из медиатеки">×</button>`:''}</div></article>`).join('')}</div>`;
 }
 function librarySummary() {
   const count = state.tracks.length;
@@ -122,8 +129,8 @@ function librarySummary() {
   return `<div class="stats-grid"><div class="stat-card"><strong>${count}</strong><span>Треков в медиатеке</span></div><div class="stat-card"><strong>${state.favorites.length}</strong><span>Избранное</span></div><div class="stat-card"><strong>${formatTime(duration)}</strong><span>Известная длительность</span></div></div>`;
 }
 function pageContent() {
-  if (state.page === 'home') return `<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Настольный музыкальный плеер для собственной коллекции. Импортируй аудиофайлы, создавай плейлисты и слушай музыку офлайн. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac" multiple></label><button class="secondary-button" data-page="library">Открыть медиатеку</button></div></section>${librarySummary()}<div class="section-head"><div><h2>Недавно добавленные</h2><p>Недавно добавленные композиции</p></div><button class="text-button" data-page="library">Вся медиатека →</button></div>${renderTracks([...state.tracks].slice(-6).reverse())}`;
-  if (state.page === 'library') return `<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные сохраняются в локальной медиатеке и доступны после перезапуска приложения.</p></div><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac" multiple></label></div>${renderTracks(visibleTracks())}`;
+  if (state.page === 'home') return `<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Настольный музыкальный плеер для собственной коллекции. Импортируй аудиофайлы, создавай плейлисты и слушай музыку офлайн. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label><button class="secondary-button" data-page="library">Открыть медиатеку</button></div></section>${librarySummary()}<div class="section-head"><div><h2>${state.search.trim()?'Результаты поиска':'Недавно добавленные'}</h2><p>${state.search.trim()?'Все совпадения в медиатеке':'Недавно добавленные композиции'}</p></div><button class="text-button" data-page="library">Вся медиатека →</button></div>${renderTracks(state.search.trim() ? visibleTracks() : [...state.tracks].slice(-6).reverse())}`;
+  if (state.page === 'library') return `<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные сохраняются в локальной медиатеке и доступны после перезапуска приложения.</p></div><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div>${renderTracks(visibleTracks())}`;
   if (state.page === 'favorites') return `<div class="page-head"><div><div class="eyebrow">YOUR FAVORITES</div><h1 class="page-title">Избранное</h1><p class="muted">Список избранного хранится локально.</p></div></div>${renderTracks(visibleTracks())}`;
   if (state.page === 'playlists') return `<div class="page-head"><div><div class="eyebrow">PERSONAL COLLECTIONS</div><h1 class="page-title">Плейлисты</h1><p class="muted">Создавай подборки из треков своей локальной медиатеки.</p></div><button class="primary-button" data-action="create-playlist">＋ Новый плейлист</button></div>${state.activePlaylist ? `<button class="text-button" data-action="back-playlists">← Все плейлисты</button><div class="section-head"><h2>${escapeHtml(state.playlists.find(p=>p.id===state.activePlaylist)?.name||'Плейлист')}</h2></div>${renderTracks(visibleTracks())}` : `<div class="playlist-grid">${state.playlists.map(p=>`<article class="playlist-card"><div class="eyebrow">QWEMU PLAYLIST</div><h3>${escapeHtml(p.name)}</h3><p>${p.trackIds.length} треков · ${escapeHtml(p.description||'Без описания')}</p><button class="secondary-button" data-action="open-playlist" data-id="${escapeHtml(p.id)}">Открыть</button> <button class="small-button" data-action="rename-playlist" data-id="${escapeHtml(p.id)}" aria-label="Переименовать">✎</button> <button class="small-button" data-action="delete-playlist" data-id="${escapeHtml(p.id)}" aria-label="Удалить">×</button></article>`).join('')}</div>${state.playlists.length?'':'<div class="empty-state"><b>Плейлистов ещё нет</b>Создай первую подборку — кнопка находится справа вверху.</div>'}`}`;
   if (state.page === 'settings') {
@@ -298,7 +305,7 @@ async function restoreDesktopLibrary() {
 
 async function addFiles(fileList) {
   if (desktopRuntime && !libraryReady) await libraryRestorePromise;
-  const selected = [...(fileList || [])].filter(file => file instanceof File && (file.type.startsWith('audio/') || /\.(mp3|wav|flac|ogg|oga|m4a|aac|aiff)$/i.test(file.name)));
+  const selected = [...(fileList || [])].filter(file => file instanceof File && /\.(mp3|wav|flac|ogg|oga|m4a|aac)$/i.test(file.name));
   if (selected.length > 500) { toast('За один импорт можно добавить не более 500 файлов.'); return; }
   if (!selected.length) { toast('Не найдено поддерживаемых аудиофайлов.'); return; }
   const files=selected.filter(file=>file.size>0 && file.size<=512*1024*1024);
@@ -307,8 +314,8 @@ async function addFiles(fileList) {
   let plannedBytes=0;
   const boundedFiles=files.filter(file=>{if(plannedBytes+file.size>remainingBytes)return false;plannedBytes+=file.size;return true;});
   const rejected=selected.length-boundedFiles.length;
-  if (rejected) toast(`Пропущено файлов из-за пустого файла или лимита размера (512 МиБ на файл, 2 ГиБ на сессию): ${rejected}.`);
-  if (state.tracks.length + boundedFiles.length > 5000) { toast('Лимит Web Edition — 5000 треков в одной сессии.'); return; }
+  if (rejected) toast(`Пропущено файлов из-за пустого файла или ограничений размера (512 МиБ на файл, 2 ГиБ на медиатеку): ${rejected}.`);
+  if (state.tracks.length + boundedFiles.length > 5000) { toast(desktopRuntime ? 'Лимит Desktop Edition — 5000 треков в медиатеке.' : 'Лимит Web Edition — 5000 треков в одной сессии.'); return; }
   let added = 0;
   const existing=new Set(state.tracks.map(track=>track.id));
   for (const file of boundedFiles) {
@@ -325,11 +332,27 @@ async function addFiles(fileList) {
     state.tracks.push(track);
     existing.add(id); added++;
   }
-  render(); toast(added ? `Добавлено файлов: ${added}. Они остаются в этой вкладке.` : 'Выбранные файлы уже добавлены.');
+  render(); toast(added ? (desktopRuntime ? `Добавлено файлов: ${added}. Они сохранены в медиатеке.` : `Добавлено файлов: ${added}. Они остаются в этой вкладке.`) : 'Выбранные файлы уже добавлены.');
 }
-async function playTrack(id) {
-  const index = state.tracks.findIndex(track => track.id === id); if (index < 0) return;
-  const track = state.tracks[index];
+function getPlaybackQueue() {
+  return buildPlaybackQueue({
+    page: state.page,
+    activePlaylist: state.activePlaylist,
+    playlists: state.playlists,
+    tracks: state.tracks,
+    favorites: state.favorites,
+    search: state.search
+  });
+}
+
+async function playTrack(id, queueIds = null) {
+  const available = new Set(state.tracks.map(track => track.id));
+  const requestedQueue = Array.isArray(queueIds) ? queueIds : getPlaybackQueue();
+  state.playbackQueue = [...new Set(requestedQueue.filter(trackId => available.has(trackId)))];
+  if (!state.playbackQueue.includes(id)) state.playbackQueue.unshift(id);
+  state.playbackIndex = state.playbackQueue.indexOf(id);
+  const track = state.tracks.find(item => item.id === id);
+  if (!track) return;
   const requestId = ++state.playRequestId;
   try {
     const playableTrack = desktopRuntime ? { ...track, file: await libraryStore.getFile(id) } : track;
@@ -350,10 +373,20 @@ function stopPlayback() {
   render();
 }
 function advance(direction) {
-  if (!state.tracks.length) return;
-  const current = state.tracks.findIndex(track => track.id === state.currentId);
-  const next = (current + direction + state.tracks.length) % state.tracks.length;
-  playTrack(state.tracks[next].id);
+  const available = new Set(state.tracks.map(track => track.id));
+  const queue = state.playbackQueue.filter(id => available.has(id));
+  if (!queue.length) {
+    const initialQueue = getPlaybackQueue();
+    if (!initialQueue.length) return;
+    const initialIndex = direction > 0 ? 0 : initialQueue.length - 1;
+    playTrack(initialQueue[initialIndex], initialQueue);
+    return;
+  }
+  const currentIndex = queue.indexOf(state.currentId);
+  const nextIndex = currentIndex < 0
+    ? (direction > 0 ? 0 : queue.length - 1)
+    : (currentIndex + direction + queue.length) % queue.length;
+  playTrack(queue[nextIndex], queue);
 }
 function toggleFavorite(id) {
   state.favorites = state.favorites.includes(id) ? state.favorites.filter(value => value !== id) : [...state.favorites, id].slice(0,5000);
@@ -391,6 +424,28 @@ function removeTrackFromPlaylist(trackId) {
   const playlist=state.playlists.find(item=>item.id===state.activePlaylist);if(!playlist)return;
   playlist.trackIds=playlist.trackIds.filter(id=>id!==trackId);writeLocal('playlists',state.playlists);persistCloud('playlists',state.playlists);render();toast('Трек убран из плейлиста.');
 }
+
+async function deleteLibraryTrack(id) {
+  const track = state.tracks.find(item => item.id === id);
+  if (!track || !desktopRuntime) return;
+  if (!confirm(`Удалить «${track.title}» из медиатеки? Файл будет удалён из локального хранилища.`)) return;
+  try {
+    await libraryStore.remove(id);
+    if (state.currentId === id) stopPlayback();
+    state.tracks = state.tracks.filter(item => item.id !== id);
+    state.favorites = state.favorites.filter(item => item !== id);
+    state.playlists = state.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(trackId => trackId !== id) }));
+    state.playbackQueue = state.playbackQueue.filter(trackId => trackId !== id);
+    state.playbackIndex = state.playbackQueue.indexOf(state.currentId);
+    writeLocal('favorites', state.favorites);
+    writeLocal('playlists', state.playlists);
+    render();
+    toast(`Трек «${track.title}» удалён. Место в медиатеке освобождено.`);
+  } catch (error) {
+    toast(`Не удалось удалить трек: ${error?.message || error}`);
+  }
+}
+
 async function submitAuth(event) {
   event.preventDefault(); const errorNode = $('#auth-error'); errorNode.textContent = '';
   const username = $('#auth-username').value.trim(); const password = $('#auth-password').value;
@@ -426,6 +481,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]'); if (!action) return;
   const { action: name, id, key } = action.dataset;
   if (name === 'play-track') await playTrack(id);
+  else if (name === 'delete-track') await deleteLibraryTrack(id);
   else if (name === 'favorite') toggleFavorite(id);
   else if (name === 'create-playlist') createPlaylist();
   else if (name === 'rename-playlist') renamePlaylist(id);
@@ -473,7 +529,7 @@ $('#account-button').addEventListener('click', () => {
 $('#search').addEventListener('input', event => { state.search = event.target.value; render(); const input=$('#search'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); });
 $('#stop').addEventListener('click', stopPlayback);
 $('#repeat').addEventListener('click', () => { state.repeat=!state.repeat; audio.setRepeat(state.repeat); render(); });
-$('#play').addEventListener('click', async () => { if (!state.currentId) { const first=state.tracks[0]; if (first) await playTrack(first.id); return; } if (audio.getStatus().playing) audio.pause(); else await audio.resume().catch(error=>toast(error.message)); render(); });
+$('#play').addEventListener('click', async () => { if (!state.currentId) { const queue=getPlaybackQueue(); if (queue.length) await playTrack(queue[0],queue); return; } if (audio.getStatus().playing) audio.pause(); else await audio.resume().catch(error=>toast(error.message)); render(); });
 $('#prev').addEventListener('click', () => advance(-1)); $('#next').addEventListener('click', () => advance(1));
 $('#seek').addEventListener('input', event => { const duration=audio.getStatus().duration; if(duration>0)audio.seek(duration*Number(event.target.value)/1000); });
 $('#volume').value=String(state.settings.volume); audio.setVolume($('#volume').value);
@@ -483,7 +539,7 @@ $('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('
 audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration); });
 audio.on('loadedmetadata', () => { const track=state.tracks.find(item=>item.id===state.currentId); if(track)track.duration=audio.getStatus().duration; render(); });
 audio.on('play', render); audio.on('pause', render);
-audio.on('ended', () => { if (state.tracks.length > 1) advance(1); else { state.currentId=null; audio.stop(); render(); } });
+audio.on('ended', () => { const queueCount=state.playbackQueue.filter(id=>state.tracks.some(track=>track.id===id)).length; if (queueCount > 1) advance(1); else { state.currentId=null; audio.stop(); render(); } });
 audio.on('error', () => toast('Браузер не смог декодировать этот файл. Попробуй другой формат.'));
 document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase()==='k') { event.preventDefault(); $('#search').focus(); } if (event.key==='Escape' && $('#auth-dialog').open) $('#auth-dialog').close(); });
 window.addEventListener('pagehide', () => { state.playRequestId += 1; audio.destroy(); }, { once: true });

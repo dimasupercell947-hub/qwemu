@@ -6,3 +6,47 @@ body { min-width: 960px; min-height: 640px; overflow-x: hidden; }
 .file-label input { cursor: pointer; }
 @media (max-height: 700px) { .sidebar { height: calc(100vh - 88px); } .player { height: 88px; } body { padding-bottom: 88px; } .view { padding-top: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+/* Light theme: keep surfaces and text in one contrast system. */
+:root[data-theme="light"] {
+  --bg: #f3f1f2; --panel: #ffffff; --panel2: #f7f4f5;
+  --line: #ded7da; --text: #21191e; --muted: #6d6268;
+}
+:root[data-theme="light"] body { background: #f3f1f2; color: #21191e; }
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .player { background: #fff; border-color: #ded7da; }
+:root[data-theme="light"] .hero { background: #fff; border-color: #ded7da; color: #21191e; }
+:root[data-theme="light"] .hero h1,
+:root[data-theme="light"] .section-head h2,
+:root[data-theme="light"] .page-title,
+:root[data-theme="light"] .track-meta b,
+:root[data-theme="light"] .track-copy b,
+:root[data-theme="light"] .stat-card strong,
+:root[data-theme="light"] .playlist-card h3,
+:root[data-theme="light"] .surface h2,
+:root[data-theme="light"] .surface h3 { color: #21191e; }
+:root[data-theme="light"] .hero p,
+:root[data-theme="light"] .muted,
+:root[data-theme="light"] .track-meta span,
+:root[data-theme="light"] .track-copy span,
+:root[data-theme="light"] .stat-card span,
+:root[data-theme="light"] .playlist-card p { color: #6d6268; }
+:root[data-theme="light"] .nav-item { color: #63585e; }
+:root[data-theme="light"] .nav-item:hover,
+:root[data-theme="light"] .nav-item.active { background: #f4e9eb; color: #21191e; }
+:root[data-theme="light"] .search-wrap,
+:root[data-theme="light"] .form-grid input,
+:root[data-theme="light"] .form-grid select,
+:root[data-theme="light"] .dialog-content input { background: #fff; color: #21191e; border-color: #d8cdd1; }
+:root[data-theme="light"] .account-button,
+:root[data-theme="light"] .secondary-button,
+:root[data-theme="light"] .small-button,
+:root[data-theme="light"] .icon-button { color: #33262c; background: #fff; border-color: #d8cdd1; }
+:root[data-theme="light"] .dialog-card { background: #fff; color: #21191e; }
+:root[data-theme="light"] .dialog-content label { color: #33262c; }
+:root[data-theme="light"] .edition-label { color: #6d6268; }
+:root[data-theme="light"] .cover-placeholder,
+:root[data-theme="light"] .track-thumb { background: #f5e7e9; color: #a51f35; }
+:root[data-theme="light"] .empty-state { background: #fff; border-color: #d8cdd1; color: #6d6268; }
+:root[data-theme="light"] .empty-state b { color: #21191e; }
+:root[data-theme="light"] .delete-track-button { color: #a51f35; border-color: #d9bfc5; }
