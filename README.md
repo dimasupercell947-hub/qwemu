@@ -8,8 +8,11 @@
 - Локальный плеер с импортом MP3, WAV, FLAC, OGG, OGA, M4A и AAC.
 - Постоянная медиатека IndexedDB (лимит 2 ГиБ, 512 МиБ на файл).
 - Плейлисты, избранное, поиск, повтор, громкость и темы.
-- **5-полосный эквалайзер** (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz), пресеты и сохранение настроек.
-- **Реактивная аудиовизуализация** в плеере.
+- **10-полосный эквалайзер:** 31, 62, 125, 250, 500 Hz, 1, 2, 4, 8 и 16 kHz.
+- Шесть пресетов, индивидуальная настройка полос от −12 до +12 dB, обход и сброс.
+- Автоматическая компенсация пикового усиления по рассчитанной АЧХ фильтров, чтобы эквалайзер не перегружал цифровой уровень.
+- Настройки EQ сохраняются локально; старые 5-полосные настройки автоматически переносятся на 10 полос.
+- Реактивная аудиовизуализация с поддержкой системного режима уменьшения анимации.
 - Обновлённые кнопки, анимации интерфейса и фирменный векторный логотип.
 - Удаление треков освобождает место; очередь воспроизведения учитывает плейлист/избранное.
 - Аудио остаётся локальным; облачная авторизация Desktop Edition отключена.
@@ -17,7 +20,7 @@
 
 ## Сборка на Windows
 
-Требуются Windows 10/11 x64, Node.js 22+, Rust stable MSVC и Visual Studio Build Tools (C++). WebView2 Runtime обычно встроен в Windows; Tauri installer настроен на bootstrapper.
+Требуются Windows 10/11 x64, Node.js 22+, Rust stable MSVC и Visual Studio Build Tools (C++). WebView2 Runtime обычно доступен в Windows; Tauri installer настроен на bootstrapper.
 
 1. Установи Rust через rustup с MSVC toolchain.
 2. Установи Visual Studio Build Tools (Desktop development with C++).
@@ -36,15 +39,15 @@ CLI Tauri закреплён на 2.12.6. Результаты сборки: `sr
 
 ## CI
 
-GitHub Actions выполняет frontend syntax, unit/smoke tests, Rust formatting и полную сборку Windows NSIS EXE + MSI. Инсталляторы не подписаны цифровым сертификатом и могут вызвать SmartScreen.
+GitHub Actions выполняет frontend syntax, unit/smoke tests, Rust formatting и полную сборку Windows NSIS EXE + MSI. Инсталляторы не подписаны цифровым сертификатом и могут вызвать предупреждение SmartScreen.
 
 ## Структура
 
-```
-public/              UI and app logic
-src-tauri/           Tauri/Rust shell
-tests/               unit and smoke tests
-.github/workflows/    CI and installer pipelines
+```text
+public/              Интерфейс и логика плеера
+src-tauri/           Tauri 2 + Rust shell
+tests/               Unit и smoke-проверки
+.github/workflows/    CI и сборка установщиков
 ```
 
 ## Лицензия

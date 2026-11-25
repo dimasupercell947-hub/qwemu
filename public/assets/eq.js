@@ -1,34 +1,361 @@
+import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSettings } from './eq-state.js';
+
 (() => {
   'use strict';
-  const audio=document.querySelector('#audio'), transport=document.querySelector('.transport'), volume=document.querySelector('.volume-control');
-  if(!audio||!transport||!volume||window.__QWEMU_EQ__)return;window.__QWEMU_EQ__=true;
-  const key='qwemu.eq.v1', bands=[['31 Hz','lowshelf',31],['62 Hz','peaking',62],['125 Hz','peaking',125],['250 Hz','peaking',250],['500 Hz','peaking',500],['1 kHz','peaking',1000],['2 kHz','peaking',2000],['4 kHz','peaking',4000],['8 kHz','peaking',8000],['16 kHz','highshelf',16000]];
-  const presets={'Плоский':[0,0,0,0,0,0,0,0,0,0],'Бас':[5,4,3,2,1,0,-1,-1,0,1],'Рок':[3,4,3,1,-1,0,2,3,4,3],'Поп':[1,2,2,1,0,1,2,2,1,1],'Вокал':[-3,-2,-1,0,1,2,3,3,2,1],'Тихий вечер':[2,1,0,0,1,1,0,-1,-1,-2]};
-  const clamp=x=>Math.max(-12,Math.min(12,Number(x)||0)), reduced=()=>document.documentElement.classList.contains('reduce-motion')||matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}')||{};}catch{}
-  let gains=Array.isArray(saved.gains)&&saved.gains.length===10?saved.gains.map(clamp):(saved.gains.length===5?[saved.gains[0],saved.gains[0],saved.gains[1],saved.gains[1],saved.gains[1],saved.gains[2],saved.gains[2],saved.gains[3],saved.gains[4],saved.gains[4]].map(clamp):[0,0,0,0,0,0,0,0,0,0]),enabled=saved.enabled!==false;
-  let ac=null,src=null,filters=[],analyser=null,raf=0;
-  function graph(){if(ac)return true;const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('Web Audio API недоступен в этом WebView');ac=new AC();src=ac.createMediaElementSource(audio);filters=bands.map(b=>{const f=ac.createBiquadFilter();f.type=b[1];f.frequency.value=b[2];if(b[1]==='peaking')f.Q.value=1;return f;});analyser=ac.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;src.connect(filters[0]);filters.forEach((f,i)=>f.connect(filters[i+1]||analyser));analyser.connect(ac.destination);apply();return true;}
-  function save(){try{localStorage.setItem(key,JSON.stringify({gains,enabled}));}catch{}}
-  function apply(){filters.forEach((f,i)=>f.gain.value=enabled?gains[i]:0);toggle.textContent=enabled?'Включён':'Выключен';toggle.classList.toggle('on',enabled);toggle.setAttribute('aria-pressed',String(enabled));status.textContent=enabled?'EQ активен':'EQ отключён';save();}
-  function init(){try{graph();if(ac.state==='suspended')ac.resume();return true;}catch(e){status.textContent=e.message;return false;}}
-  const canvas=document.createElement('canvas');canvas.className='qwemu-wave';canvas.setAttribute('role','img');canvas.setAttribute('aria-label','Визуализация звучания');transport.insertBefore(canvas,transport.querySelector('.transport-buttons'));const g=canvas.getContext('2d');
-  const resize=()=>{let r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);canvas.width=Math.max(1,r.width*d);canvas.height=Math.max(1,r.height*d);g.setTransform(d,0,0,d,0,0);};resize();new ResizeObserver(resize).observe(canvas);
-  function draw(){let r=canvas.getBoundingClientRect(),w=r.width,h=r.height;g.clearRect(0,0,w,h);let data=null;if(analyser&&!audio.paused&&!audio.ended){data=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(data);}const n=40,gap=2.1,bw=Math.max(1,(w-(n-1)*gap)/n);for(let i=0;i<n;i++){let amp=data?Math.max(.06,data[Math.floor(i/n*data.length)]/255):.055;if(data&&!reduced())amp*=1+Math.sin(performance.now()/320+i*.55)*.14;let bh=Math.max(2,amp*h*.82),y=(h-bh)/2,x=i*(bw+gap);let grad=g.createLinearGradient(0,y,0,y+bh);grad.addColorStop(0,'#f3a05a');grad.addColorStop(1,'#df4c49');g.fillStyle=grad;g.beginPath();g.roundRect(x,y,bw,bh,Math.min(bw/2,3));g.fill();}if(data&&!reduced())raf=requestAnimationFrame(draw);else raf=0;}
-  function run(){if(!raf)draw();}function halt(){if(raf)cancelAnimationFrame(raf);raf=0;draw();}
-  audio.addEventListener('play',()=>{if(init())run();});audio.addEventListener('pause',halt);audio.addEventListener('ended',halt);document.addEventListener('visibilitychange',()=>document.hidden?halt():(!audio.paused&&run()));
-  const open=document.createElement('button');open.className='eq-open-button';open.type='button';open.title='Эквалайзер';open.setAttribute('aria-label','Открыть эквалайзер');open.innerHTML='<span aria-hidden="true">▥</span> EQ';volume.insertBefore(open,volume.firstChild);
-  const panel=document.createElement('section');panel.className='eq-panel';panel.hidden=true;panel.innerHTML='<header class="eq-header"><div><div class="eq-overline">QWEMU AUDIO LAB</div><h2>Эквалайзер</h2></div><button class="eq-close" type="button" aria-label="Закрыть">×</button></header><div class="eq-presets"><select class="eq-preset" aria-label="Пресет"></select><button class="eq-reset" type="button">Сброс</button></div><div class="eq-bands"></div><footer class="eq-footer"><span class="eq-status">Готов</span><button class="eq-toggle" type="button" aria-pressed="true">Включён</button></footer>';document.body.append(panel);
-  const toggle=panel.querySelector('.eq-toggle'),status=panel.querySelector('.eq-status'),select=panel.querySelector('.eq-preset'),holder=panel.querySelector('.eq-bands');
-  const customOption=document.createElement('option');customOption.value='custom';customOption.textContent='Свои настройки';select.append(customOption);Object.keys(presets).forEach(name=>{let o=document.createElement('option');o.value=name;o.textContent=name;select.append(o);});select.value=Object.entries(presets).find(([,v])=>v.every((g,i)=>g===gains[i]))?.[0]||'custom';
-  bands.forEach((b,i)=>{let label=document.createElement('label');label.className='eq-band';label.innerHTML='<span class="eq-val">0 dB</span><input type="range" min="-12" max="12" step=".5" value="'+gains[i]+'" aria-label="'+b[0]+' gain"><span class="eq-name">'+b[0]+'</span>';let input=label.querySelector('input');const text=label.querySelector('.eq-val');text.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';input.addEventListener('input',()=>{gains[i]=clamp(input.value);text.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';select.value='custom';if(init())apply();});holder.append(label);});
-  function sync(){holder.querySelectorAll('input').forEach((el,i)=>{el.value=gains[i];el.previousElementSibling.textContent=(gains[i]>0?'+':'')+gains[i]+' dB';});}
-  select.addEventListener('change',()=>{if(!presets[select.value])return;gains=[...presets[select.value]];sync();if(init())apply();});
-  panel.querySelector('.eq-reset').addEventListener('click',()=>{gains=[0,0,0,0,0,0,0,0,0,0];select.value='Плоский';sync();if(init())apply();});
-  toggle.addEventListener('click',()=>{if(init()){enabled=!enabled;apply();}});
-  const close=()=>{panel.hidden=true;open.classList.remove('active');open.focus();};panel.querySelector('.eq-close').addEventListener('click',close);
-  open.addEventListener('click',()=>{panel.hidden=!panel.hidden;open.classList.toggle('active',!panel.hidden);if(!panel.hidden)init();});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!panel.hidden)close();});
-  document.addEventListener('click',e=>{if(e.target.closest('#play,[data-action="play-track"]'))init();},true);
-  apply();halt();
+
+  const audio = document.querySelector('#audio');
+  const transport = document.querySelector('.transport');
+  const volume = document.querySelector('.volume-control');
+  if (!audio || !transport || !volume || window.__QWEMU_EQ__) return;
+  window.__QWEMU_EQ__ = true;
+
+  const storageKey = 'qwemu.eq.v1';
+  const readSavedSettings = () => {
+    try {
+      return localStorage.getItem(storageKey);
+    } catch {
+      return null;
+    }
+  };
+
+  const restored = parseEqSettings(readSavedSettings());
+  let gains = restored.gains;
+  let enabled = restored.enabled;
+  let audioContext = null;
+  let filters = [];
+  let preGain = null;
+  let analyser = null;
+  let animationFrame = 0;
+
+  const prefersReducedMotion = () => {
+    const mediaQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    return document.documentElement.classList.contains('reduce-motion') || Boolean(mediaQuery?.matches);
+  };
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ version: 2, gains, enabled }));
+    } catch {
+      status.textContent = 'Не удалось сохранить настройки';
+    }
+  }
+
+  function updateHeadroom() {
+    if (!audioContext || !preGain || filters.length !== EQ_BANDS.length) return;
+
+    try {
+      const nyquist = audioContext.sampleRate / 2;
+      const maxFrequency = Math.min(20000, nyquist * 0.98);
+      const minFrequency = Math.min(10, maxFrequency * 0.5);
+      const pointCount = 512;
+      const frequencies = new Float32Array(pointCount);
+      const combinedMagnitude = new Float32Array(pointCount);
+      const filterMagnitude = new Float32Array(pointCount);
+      const phase = new Float32Array(pointCount);
+
+      for (let index = 0; index < pointCount; index += 1) {
+        const progress = index / (pointCount - 1);
+        frequencies[index] = minFrequency * (maxFrequency / minFrequency) ** progress;
+        combinedMagnitude[index] = 1;
+      }
+
+      for (const filter of filters) {
+        filter.getFrequencyResponse(frequencies, filterMagnitude, phase);
+        for (let index = 0; index < pointCount; index += 1) {
+          const response = filterMagnitude[index];
+          if (Number.isFinite(response) && response >= 0) {
+            combinedMagnitude[index] *= response;
+          }
+        }
+      }
+
+      const peakResponse = Math.max(...combinedMagnitude);
+      const targetGain = enabled && peakResponse > 1
+        ? Math.min(1, 0.98 / peakResponse)
+        : 1;
+      preGain.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.025);
+    } catch {
+      const maximumBoost = Math.max(0, ...gains);
+      const fallbackGain = enabled ? 10 ** (-maximumBoost / 20) : 1;
+      preGain.gain.setTargetAtTime(fallbackGain, audioContext.currentTime, 0.025);
+    }
+  }
+
+  function applySettings() {
+    const now = audioContext?.currentTime ?? 0;
+    filters.forEach((filter, index) => {
+      const target = enabled ? gains[index] : 0;
+      if (audioContext && typeof filter.gain.setTargetAtTime === 'function') {
+        filter.gain.setTargetAtTime(target, now, 0.015);
+      } else {
+        filter.gain.value = target;
+      }
+    });
+
+    updateHeadroom();
+    toggle.textContent = enabled ? 'Включён' : 'Выключен';
+    toggle.classList.toggle('on', enabled);
+    toggle.setAttribute('aria-pressed', String(enabled));
+    status.textContent = enabled ? 'EQ активен' : 'EQ отключён';
+    saveSettings();
+  }
+
+  function createAudioGraph() {
+    if (audioContext) return true;
+
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) throw new Error('Web Audio API недоступен в этом WebView');
+
+    const context = new AudioContextConstructor();
+    try {
+      const source = context.createMediaElementSource(audio);
+      const gainNode = context.createGain();
+      const nextFilters = EQ_BANDS.map(band => {
+        const filter = context.createBiquadFilter();
+        filter.type = band.type;
+        filter.frequency.value = band.frequency;
+        if (band.type === 'peaking') filter.Q.value = 1;
+        return filter;
+      });
+      const meter = context.createAnalyser();
+      meter.fftSize = 256;
+      meter.smoothingTimeConstant = 0.82;
+
+      source.connect(gainNode);
+      gainNode.connect(nextFilters[0]);
+      nextFilters.forEach((filter, index) => {
+        filter.connect(nextFilters[index + 1] || meter);
+      });
+      meter.connect(context.destination);
+
+      audioContext = context;
+      preGain = gainNode;
+      filters = nextFilters;
+      analyser = meter;
+      applySettings();
+      return true;
+    } catch (error) {
+      context.close().catch(() => {});
+      throw error;
+    }
+  }
+
+  function initializeAudio() {
+    try {
+      createAudioGraph();
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(error => {
+          status.textContent = error?.message || 'Не удалось активировать аудиоконтекст';
+        });
+      }
+      return true;
+    } catch (error) {
+      status.textContent = error?.message || 'Не удалось включить эквалайзер';
+      return false;
+    }
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'qwemu-wave';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', 'Визуализация звучания');
+  transport.insertBefore(canvas, transport.querySelector('.transport-buttons'));
+  const canvasContext = canvas.getContext('2d');
+
+  function resizeCanvas() {
+    if (!canvasContext) return;
+    const rect = canvas.getBoundingClientRect();
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(rect.width * pixelRatio));
+    canvas.height = Math.max(1, Math.round(rect.height * pixelRatio));
+    canvasContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  }
+
+  resizeCanvas();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(resizeCanvas).observe(canvas);
+  } else {
+    window.addEventListener('resize', resizeCanvas, { passive: true });
+  }
+
+  function drawVisualizer() {
+    if (!canvasContext) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    canvasContext.clearRect(0, 0, width, height);
+
+    let frequencyData = null;
+    if (analyser && !audio.paused && !audio.ended) {
+      frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(frequencyData);
+    }
+
+    const barCount = 40;
+    const gap = 2.1;
+    const barWidth = Math.max(1, (width - (barCount - 1) * gap) / barCount);
+
+    for (let index = 0; index < barCount; index += 1) {
+      let amplitude = frequencyData
+        ? Math.max(0.06, frequencyData[Math.floor(index / barCount * frequencyData.length)] / 255)
+        : 0.055;
+
+      if (frequencyData && !prefersReducedMotion()) {
+        amplitude *= 1 + Math.sin(performance.now() / 320 + index * 0.55) * 0.14;
+      }
+
+      const barHeight = Math.max(2, amplitude * height * 0.82);
+      const y = (height - barHeight) / 2;
+      const x = index * (barWidth + gap);
+      const gradient = canvasContext.createLinearGradient(0, y, 0, y + barHeight);
+      gradient.addColorStop(0, '#f3a05a');
+      gradient.addColorStop(1, '#df4c49');
+      canvasContext.fillStyle = gradient;
+      canvasContext.beginPath();
+      canvasContext.roundRect(x, y, barWidth, barHeight, Math.min(barWidth / 2, 3));
+      canvasContext.fill();
+    }
+
+    if (frequencyData && !prefersReducedMotion()) {
+      animationFrame = requestAnimationFrame(drawVisualizer);
+    } else {
+      animationFrame = 0;
+    }
+  }
+
+  function startVisualizer() {
+    if (!animationFrame) drawVisualizer();
+  }
+
+  function stopVisualizer() {
+    if (animationFrame) cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+    drawVisualizer();
+  }
+
+  audio.addEventListener('play', () => {
+    if (initializeAudio()) startVisualizer();
+  });
+  audio.addEventListener('pause', stopVisualizer);
+  audio.addEventListener('ended', stopVisualizer);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopVisualizer();
+    else if (!audio.paused) startVisualizer();
+  });
+
+  const openButton = document.createElement('button');
+  openButton.className = 'eq-open-button';
+  openButton.type = 'button';
+  openButton.title = 'Эквалайзер';
+  openButton.setAttribute('aria-label', 'Открыть эквалайзер');
+  openButton.setAttribute('aria-expanded', 'false');
+  openButton.innerHTML = '<span aria-hidden="true">▥</span> EQ';
+  volume.insertBefore(openButton, volume.firstChild);
+
+  const panel = document.createElement('section');
+  panel.className = 'eq-panel';
+  panel.hidden = true;
+  panel.setAttribute('aria-label', 'Настройки десятиполосного эквалайзера');
+  panel.innerHTML = '<header class="eq-header"><div><div class="eq-overline">QWEMU AUDIO LAB</div><h2>Эквалайзер</h2></div><button class="eq-close" type="button" aria-label="Закрыть">×</button></header><div class="eq-presets"><select class="eq-preset" aria-label="Пресет"></select><button class="eq-reset" type="button">Сброс</button></div><div class="eq-bands"></div><footer class="eq-footer"><span class="eq-status">Готов</span><button class="eq-toggle" type="button" aria-pressed="true">Включён</button></footer>';
+  document.body.append(panel);
+
+  const toggle = panel.querySelector('.eq-toggle');
+  const status = panel.querySelector('.eq-status');
+  const presetSelect = panel.querySelector('.eq-preset');
+  const bandsHolder = panel.querySelector('.eq-bands');
+
+  const customOption = document.createElement('option');
+  customOption.value = 'custom';
+  customOption.textContent = 'Свои настройки';
+  customOption.disabled = true;
+  presetSelect.append(customOption);
+
+  Object.keys(EQ_PRESETS).forEach(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    presetSelect.append(option);
+  });
+  presetSelect.value = matchingEqPreset(gains);
+
+  const bandInputs = EQ_BANDS.map((band, index) => {
+    const label = document.createElement('label');
+    label.className = 'eq-band';
+    label.innerHTML = '<span class="eq-val"></span><input type="range" min="-12" max="12" step="0.5" aria-label="' + band.label + ' gain"><span class="eq-name">' + band.label + '</span>';
+
+    const input = label.querySelector('input');
+    const valueLabel = label.querySelector('.eq-val');
+    input.value = String(gains[index]);
+    valueLabel.textContent = (gains[index] > 0 ? '+' : '') + gains[index] + ' dB';
+
+    input.addEventListener('input', () => {
+      gains[index] = normalizeEqGain(input.value);
+      valueLabel.textContent = (gains[index] > 0 ? '+' : '') + gains[index] + ' dB';
+      presetSelect.value = matchingEqPreset(gains);
+      if (initializeAudio()) applySettings();
+      else saveSettings();
+    });
+
+    bandsHolder.append(label);
+    return input;
+  });
+
+  function syncBandInputs() {
+    bandInputs.forEach((input, index) => {
+      input.value = String(gains[index]);
+      input.previousElementSibling.textContent = (gains[index] > 0 ? '+' : '') + gains[index] + ' dB';
+    });
+    presetSelect.value = matchingEqPreset(gains);
+  }
+
+  presetSelect.addEventListener('change', () => {
+    const preset = EQ_PRESETS[presetSelect.value];
+    if (!preset) return;
+    gains = [...preset];
+    syncBandInputs();
+    if (initializeAudio()) applySettings();
+    else saveSettings();
+  });
+
+  panel.querySelector('.eq-reset').addEventListener('click', () => {
+    gains = [...EQ_PRESETS['Плоский']];
+    syncBandInputs();
+    if (initializeAudio()) applySettings();
+    else saveSettings();
+  });
+
+  toggle.addEventListener('click', () => {
+    if (!initializeAudio()) return;
+    enabled = !enabled;
+    applySettings();
+  });
+
+  function closePanel() {
+    panel.hidden = true;
+    openButton.classList.remove('active');
+    openButton.setAttribute('aria-expanded', 'false');
+    openButton.focus();
+  }
+
+  panel.querySelector('.eq-close').addEventListener('click', closePanel);
+  openButton.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    openButton.classList.toggle('active', !panel.hidden);
+    openButton.setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden) initializeAudio();
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !panel.hidden) closePanel();
+  });
+
+  document.addEventListener('click', event => {
+    if (event.target instanceof Element && event.target.closest('#play,[data-action="play-track"]')) {
+      initializeAudio();
+    }
+  }, true);
+
+  applySettings();
+  stopVisualizer();
 })();
