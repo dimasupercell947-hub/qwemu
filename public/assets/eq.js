@@ -85,11 +85,7 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
     const now = audioContext?.currentTime ?? 0;
     filters.forEach((filter, index) => {
       const target = enabled ? gains[index] : 0;
-      if (audioContext && typeof filter.gain.setTargetAtTime === 'function') {
-        filter.gain.setTargetAtTime(target, now, 0.015);
-      } else {
-        filter.gain.value = target;
-      }
+      filter.gain.value = target;
     });
 
     updateHeadroom();
