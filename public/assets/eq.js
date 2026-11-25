@@ -1,4 +1,4 @@
-import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSettings } from './eq-state.js';
+import { EQ_BANDS, EQ_PRESETS, calculateEqHeadroomGain, matchingEqPreset, normalizeEqGain, parseEqSettings } from './eq-state.js';
 
 (() => {
   'use strict';
@@ -25,6 +25,8 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
   let filters = [];
   let preGain = null;
   let analyser = null;
+  let analyserData = null;
+  let visualizerGradient = null;
   let animationFrame = 0;
 
   const prefersReducedMotion = () => {
@@ -47,7 +49,7 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
       const nyquist = audioContext.sampleRate / 2;
       const maxFrequency = Math.min(20000, nyquist * 0.98);
       const minFrequency = Math.min(10, maxFrequency * 0.5);
-      const pointCount = 512;
+      const pointCount = 1024;
       const frequencies = new Float32Array(pointCount);
       const combinedMagnitude = new Float32Array(pointCount);
       const filterMagnitude = new Float32Array(pointCount);
@@ -69,14 +71,11 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
         }
       }
 
-      const peakResponse = Math.max(...combinedMagnitude);
-      const targetGain = enabled && peakResponse > 1
-        ? Math.min(1, 0.98 / peakResponse)
-        : 1;
+      const targetGain = enabled ? calculateEqHeadroomGain(combinedMagnitude, 0.9) : 1;
       preGain.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.025);
     } catch {
       const maximumBoost = Math.max(0, ...gains);
-      const fallbackGain = enabled ? 10 ** (-maximumBoost / 20) : 1;
+      const fallbackGain = enabled ? 0.9 * 10 ** (-maximumBoost / 20) : 1;
       preGain.gain.setTargetAtTime(fallbackGain, audioContext.currentTime, 0.025);
     }
   }
@@ -128,6 +127,7 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
       preGain = gainNode;
       filters = nextFilters;
       analyser = meter;
+      analyserData = new Uint8Array(meter.frequencyBinCount);
       applySettings();
       return true;
     } catch (error) {
@@ -165,6 +165,9 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
     canvas.width = Math.max(1, Math.round(rect.width * pixelRatio));
     canvas.height = Math.max(1, Math.round(rect.height * pixelRatio));
     canvasContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    visualizerGradient = canvasContext.createLinearGradient(0, 0, 0, rect.height);
+    visualizerGradient.addColorStop(0, '#f3a05a');
+    visualizerGradient.addColorStop(1, '#df4c49');
   }
 
   resizeCanvas();
@@ -184,7 +187,7 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
 
     let frequencyData = null;
     if (analyser && !audio.paused && !audio.ended) {
-      frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      frequencyData = analyserData;
       analyser.getByteFrequencyData(frequencyData);
     }
 
@@ -204,12 +207,13 @@ import { EQ_BANDS, EQ_PRESETS, matchingEqPreset, normalizeEqGain, parseEqSetting
       const barHeight = Math.max(2, amplitude * height * 0.82);
       const y = (height - barHeight) / 2;
       const x = index * (barWidth + gap);
-      const gradient = canvasContext.createLinearGradient(0, y, 0, y + barHeight);
-      gradient.addColorStop(0, '#f3a05a');
-      gradient.addColorStop(1, '#df4c49');
-      canvasContext.fillStyle = gradient;
+      canvasContext.fillStyle = visualizerGradient || '#e56d4b';
       canvasContext.beginPath();
-      canvasContext.roundRect(x, y, barWidth, barHeight, Math.min(barWidth / 2, 3));
+      if (typeof canvasContext.roundRect === 'function') {
+        canvasContext.roundRect(x, y, barWidth, barHeight, Math.min(barWidth / 2, 3));
+      } else {
+        canvasContext.rect(x, y, barWidth, barHeight);
+      }
       canvasContext.fill();
     }
 

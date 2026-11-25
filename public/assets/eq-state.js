@@ -22,6 +22,16 @@ export const EQ_PRESETS = Object.freeze({
 
 const DEFAULT_GAINS = Object.freeze([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
+export function calculateEqHeadroomGain(magnitudeResponses, ceiling = 0.9) {
+  if (!magnitudeResponses || typeof magnitudeResponses[Symbol.iterator] !== 'function') return 1;
+  let peak = 1;
+  for (const response of magnitudeResponses) {
+    if (Number.isFinite(response) && response > peak) peak = response;
+  }
+  const safeCeiling = Number.isFinite(ceiling) ? Math.max(0.1, Math.min(1, ceiling)) : 0.9;
+  return peak > 1 ? safeCeiling / peak : 1;
+}
+
 export function normalizeEqGain(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
