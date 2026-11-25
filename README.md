@@ -26,6 +26,8 @@
 
 CLI Tauri закреплён на 2.12.6. Результаты сборки: `src-tauri/target/release/bundle/`.
 
+Для ручной работы из PowerShell: `npm install --no-package-lock`, затем `npm run tauri -- dev --config src-tauri/tauri.conf.json` или `npm run tauri -- build --config src-tauri/tauri.conf.json`.
+
 Поддерживаются расширения `.mp3`, `.wav`, `.flac`, `.ogg`, `.oga`, `.m4a`, `.aac`. AIFF не принимается, так как WebView2 не гарантирует декодирование.
 
 ## Локальные данные и приватность
@@ -44,3 +46,7 @@ src-tauri/           Tauri/Rust shell
 tests/               unit and smoke tests
 .github/workflows/    CI and installer pipelines
 ```
+
+## Лицензия
+
+Лицензия проекта пока не назначена. Не распространяй производные сборки как open-source без разрешения автора.
