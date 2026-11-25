@@ -1,77 +1,46 @@
 # QWEMU MUSIC Desktop
 
 **Нативная ПК-версия QWEMU MUSIC для Windows 10/11.**  
-Версия: **1.5.0** · Tauri 2 · Rust · HTML/CSS/JavaScript
+Версия: **1.5.1** · Tauri 2 · Rust · HTML/CSS/JavaScript
 
 ## Возможности
 
-- Локальный музыкальный плеер с импортом MP3, WAV, FLAC, OGG, OGA, M4A и AAC.
-- Сохранение импортированной медиатеки между запусками приложения через IndexedDB (лимит 2 ГиБ, 512 МиБ на файл).
-- Плейлисты, избранное, поиск, повтор, громкость и темы оформления.
-- Удаление треков с освобождением места в хранилище.
-- Очередь воспроизведения учитывает текущий плейлист или избранное.
-- Воспроизведение локальных файлов без отправки аудио на сервер.
-- Оконное приложение Windows с установщиками NSIS (.exe) и MSI.
-- Проверки Rust и frontend-кода в GitHub Actions.
+- Локальный плеер с импортом MP3, WAV, FLAC, OGG, OGA, M4A и AAC.
+- Постоянная медиатека IndexedDB (лимит 2 ГиБ, 512 МиБ на файл).
+- Плейлисты, избранное, поиск, повтор, громкость и темы.
+- **5-полосный эквалайзер** (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz), пресеты и сохранение настроек.
+- **Реактивная аудиовизуализация** в плеере.
+- Обновлённые кнопки, анимации интерфейса и фирменный векторный логотип.
+- Удаление треков освобождает место; очередь воспроизведения учитывает плейлист/избранное.
+- Аудио остаётся локальным; облачная авторизация Desktop Edition отключена.
+- Установщики Windows NSIS EXE и MSI.
 
 ## Сборка на Windows
 
-Требуются Windows 10/11 x64, Node.js 22+, Rust stable с MSVC toolchain и Visual Studio Build Tools (C++ build tools). WebView2 Runtime обычно уже установлен в Windows 10/11; установщик Tauri настроен на загрузку bootstrapper при необходимости.
+Требуются Windows 10/11 x64, Node.js 22+, Rust stable MSVC и Visual Studio Build Tools (C++). WebView2 Runtime обычно встроен в Windows; Tauri installer настроен на bootstrapper.
 
-1. Установи Rust с https://rustup.rs/ и выбери MSVC toolchain.
-2. Установи Visual Studio Build Tools с компонентом **Desktop development with C++**.
-3. Открой папку проекта.
-4. Запусти `run.bat` для разработки или `build.bat` для сборки установщиков.
+1. Установи Rust через rustup с MSVC toolchain.
+2. Установи Visual Studio Build Tools (Desktop development with C++).
+3. Запусти `run.bat` для разработки или `build.bat` для установщиков.
+4. `check.bat` запускает frontend checks и тесты.
 
-Команды вручную из корня репозитория:
+CLI Tauri закреплён на 2.12.6. Результаты сборки: `src-tauri/target/release/bundle/`.
 
-```powershell
-npm install --no-package-lock
-npm run tauri -- dev --config src-tauri/tauri.conf.json
-npm run tauri -- build --config src-tauri/tauri.conf.json
-```
-
-Tauri CLI закреплён на версии 2.12.6 в `package.json`. Он устанавливается npm как готовый CLI-wrapper; Rust-код приложения всё равно компилируется Cargo.
-
-Артефакты сборки находятся в `src-tauri/target/release/bundle/`.
-
-Поддерживаемые расширения: `.mp3`, `.wav`, `.flac`, `.ogg`, `.oga`, `.m4a`, `.aac`. AIFF пока не принимается: штатный аудиодекодер Windows WebView2 не гарантирует его воспроизведение.
-
-## Запуск без установки
-
-Для разработки:
-
-```powershell
-npm install --no-package-lock
-npm run tauri -- dev --config src-tauri/tauri.conf.json
-```
+Поддерживаются расширения `.mp3`, `.wav`, `.flac`, `.ogg`, `.oga`, `.m4a`, `.aac`. AIFF не принимается, так как WebView2 не гарантирует декодирование.
 
 ## Локальные данные и приватность
 
-Музыкальные файлы остаются на компьютере. Desktop Edition сохраняет файлы и метаданные медиатеки в локальном хранилище WebView (IndexedDB); при удалении приложения данные могут быть удалены вместе с его пользовательским хранилищем. Не используй очистку данных приложения, если хочешь сохранить библиотеку.
+Музыка и настройки хранятся локально в WebView/IndexedDB. Файлы не отправляются в интернет. Не очищай данные приложения, чтобы не потерять медиатеку. Web Edition и её cloud sync — отдельный продукт.
 
-**Cloudflare Web Edition — отдельный продукт.** В этой Desktop-сборке облачная авторизация и синхронизация отключены, чтобы приложение не отправляло запросы на не настроенный сервер. Плейлисты, избранное и настройки сохраняются локально.
+## CI
 
-## Проверки
-
-```powershell
-check.bat
-```
-
-Windows CI выполняет frontend unit/smoke tests, проверку Rust formatting и полную Tauri-сборку обоих установщиков NSIS EXE и MSI. Полная сборка сама компилирует Rust в release-профиле без отдельной повторной debug-компиляции. Для дополнительного debug-проверочного прохода локально запусти `check.bat --rust`. Файлы прикрепляются к артефактам запуска Actions на 14 дней. Установщики пока не подписаны цифровым сертификатом, поэтому Windows может показывать предупреждение SmartScreen. Скачивай их только из доверенного запуска GitHub Actions.
+GitHub Actions выполняет frontend syntax, unit/smoke tests, Rust formatting и полную сборку Windows NSIS EXE + MSI. Инсталляторы не подписаны цифровым сертификатом и могут вызвать SmartScreen.
 
 ## Структура
 
-```text
-public/                 Интерфейс и логика плеера
-src-tauri/              Tauri 2 + Rust shell
-tests/                  Smoke-проверки
-.github/workflows/      CI и сборка релизов
-run.bat                 Запуск разработки
-build.bat               Сборка NSIS/MSI
-check.bat               Проверка проекта
 ```
-
-## Лицензия
-
-Лицензия пока не назначена. Не распространяй сборки как open-source производные без разрешения автора проекта.
+public/              UI and app logic
+src-tauri/           Tauri/Rust shell
+tests/               unit and smoke tests
+.github/workflows/    CI and installer pipelines
+```
