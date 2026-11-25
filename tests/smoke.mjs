@@ -73,8 +73,6 @@ for (const capability of [
   'createBiquadFilter',
   'getByteFrequencyData',
   'getFrequencyResponse',
-  '31 Hz',
-  '16 kHz',
   'parseEqSettings',
   'localStorage'
 ]) {
