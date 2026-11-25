@@ -28,3 +28,7 @@ button:disabled{cursor:not-allowed;opacity:.6}
 @media(max-width:700px){.player{grid-template-columns:1fr;grid-template-rows:48px 70px}.transport{grid-template-columns:auto minmax(0,1fr);grid-template-rows:1fr 24px;gap:4px 8px}.transport-buttons{grid-column:1;grid-row:1;gap:4px}.qwemu-wave{grid-column:2;grid-row:1;height:25px}.timeline{grid-column:1/-1;grid-row:2}.volume-control{width:92px}.eq-open-button{position:absolute;right:105px;top:13px;min-height:30px}.eq-panel{bottom:154px;right:12px}}
 @media(max-width:420px){.eq-panel{padding:14px}.eq-bands{gap:3px}.eq-name{font-size:9px}.eq-band input{width:16px}.player{grid-template-rows:50px 63px}.transport-buttons .icon-button{padding:5px 6px}}
 @media(prefers-reduced-motion:reduce){.hero,.surface,.stat-card,.playlist-card,.eq-panel{animation:none!important}button,.primary-button,.secondary-button,.small-button,.icon-button,.track-row{transition:none!important;transform:none!important}}
+
+/* Keep the extra visualization row within the fixed player height. */
+.player{height:100px;padding:11px 22px}body{padding-bottom:100px}.sidebar{height:calc(100vh - 100px)}.app-shell{min-height:calc(100vh - 100px)}.transport{grid-template-rows:20px 32px 20px;gap:2px}.qwemu-wave{height:20px}
+@media(max-width:700px){.player{height:140px;padding:9px 13px}.transport{grid-template-rows:1fr 24px;gap:4px 8px}.qwemu-wave{height:24px}}
