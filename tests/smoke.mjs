@@ -19,6 +19,7 @@ const required = [
   'public/assets/track-sort.js',
   'public/assets/playlist-io.js',
   'public/assets/audio-adapter.js',
+  'tests/audio-adapter.test.mjs',
   'public/assets/storage-adapter.js',
   'public/assets/eq.js',
   'public/assets/eq-state.js',
@@ -109,6 +110,12 @@ assert.ok(read('public/assets/library-store.js').includes('updateMetadata'));
 assert.ok(read('public/assets/library-store.js').includes('putLink'));
 assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
+assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
+assert.ok(read('public/assets/music-url.js').includes('yandex-music'));
+assert.ok(read('public/assets/audio-adapter.js').includes('shouldUseExternalElement'));
+assert.ok(read('public/assets/library-store.js').includes('providerName: classification.serviceName'));
+assert.ok(read('public/index.html').includes('id="link-sites"'));
+assert.ok(read('public/assets/ui-overhaul.css').includes('.source-catalog-chip'));
 assert.ok(read('public/assets/audio-formats.js').includes('AUDIO_FORMATS'));
 assert.ok(read('public/index.html').includes('id="shuffle"'));
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
