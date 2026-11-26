@@ -102,6 +102,10 @@ assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should b
 
 assert.ok(read('public/assets/library-store.js').includes('indexedDB.open'));
 assert.ok(read('public/assets/library-store.js').includes('updateMetadata'));
+assert.ok(read('public/assets/library-store.js').includes('putLink'));
+assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
+assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
+assert.ok(read('public/assets/audio-formats.js').includes('AUDIO_FORMATS'));
 assert.ok(read('public/index.html').includes('id="shuffle"'));
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
