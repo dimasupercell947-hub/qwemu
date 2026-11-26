@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {classifyMusicUrl,titleFromMusicUrl} from '../public/assets/music-url.js';
+test('recognizes music platform links as bookmarks',()=>{assert.equal(classifyMusicUrl('https://open.spotify.com/track/abc123').kind,'music-site');assert.equal(classifyMusicUrl('https://music.youtube.com/watch?v=abc').kind,'music-site');});
+test('recognizes direct supported HTTPS streams',()=>{const r=classifyMusicUrl('https://cdn.example.org/music/song.opus?token=demo');assert.equal(r.ok,true);assert.equal(r.kind,'direct-audio');assert.equal(r.extension,'opus');});
+test('rejects insecure, local, unknown and credential URLs',()=>{for(const value of ['http://open.spotify.com/track/a','file:///C:/song.mp3','https://localhost/song.mp3','https://127.0.0.1/song.mp3','https://example.com/','https://user:pass@open.spotify.com/track/a','https://example.com/song.exe'])assert.equal(classifyMusicUrl(value).ok,false,value);});
+test('title fallback is readable',()=>{assert.equal(titleFromMusicUrl('https://cdn.example.com/lo-fi_song.mp3'),'lo fi song');});
