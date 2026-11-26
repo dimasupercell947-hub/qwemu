@@ -543,7 +543,7 @@ function exportPlaylist(id){
   try{
     const blob=new Blob([exportPlaylistM3u(playlist,state.tracks)],{type:'audio/x-mpegurl;charset=utf-8'});
     const url=URL.createObjectURL(blob),anchor=document.createElement('a');
-    const safe=playlist.name.replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').replace(/\s+/g,' ').trim().slice(0,60)||'QWEMU-Playlist';
+    const safe=playlist.name.replace(/[<>:"\/\\|?*\x00-\x1F]/g,'-').replace(/\s+/g,' ').trim().slice(0,60)||'QWEMU-Playlist';
     anchor.href=url;anchor.download=safe+'.m3u8';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     toast('Плейлист экспортирован в M3U8. Аудиофайлы в экспорт не входят.');
   }catch(error){toast('Не удалось экспортировать плейлист: '+(error.message||error));}
