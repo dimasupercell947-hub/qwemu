@@ -181,3 +181,6 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:2px solid #fff
   .update-notice{right:10px;bottom:178px;gap:10px;padding:12px}
 }
 @media(max-width:420px){.hotkey-item{gap:8px;font-size:12px}.hotkey-grid{column-gap:12px}.transport-buttons{gap:4px}}
+
+/* Match the fixed desktop player footprint. */
+body{padding-bottom:112px}
