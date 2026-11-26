@@ -411,13 +411,16 @@ async function addFiles(fileList) {
   render(); toast(added ? (desktopRuntime ? `Добавлено файлов: ${added}. Они сохранены в медиатеке.` : `Добавлено файлов: ${added}. Они остаются в этой вкладке.`) : 'Выбранные файлы уже добавлены.');
 }
 function getPlaybackQueue() {
-  if(state.page==='queue')return state.playbackQueue.filter(id=>state.tracks.some(track=>track.id===id));
-  if(state.page==='history')return visibleTracks().map(track=>track.id);
-  return buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:state.tracks,favorites:state.favorites,search:state.search});
+  const playable=state.tracks.filter(track=>!track.externalUrl);
+  if(state.page==='queue')return state.playbackQueue.filter(id=>playable.some(track=>track.id===id));
+  if(state.page==='history')return visibleTracks().filter(track=>!track.externalUrl).map(track=>track.id);
+  return buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:playable,favorites:state.favorites.filter(id=>playable.some(track=>track.id===id)),search:state.search});
 }
 
 async function playTrack(id, queueIds = null) {
-  const available=new Set(state.tracks.map(track=>track.id));
+  const selected=state.tracks.find(track=>track.id===id);
+  if(selected?.externalUrl){openMusicSource(selected.externalUrl);return;}
+  const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const requested=Array.isArray(queueIds)?queueIds:getPlaybackQueue();
   const unique=[...new Set(requested.filter(trackId=>available.has(trackId)))];
   if(!unique.includes(id))unique.unshift(id);
@@ -444,7 +447,7 @@ async function playTrack(id, queueIds = null) {
 }
 function stopPlayback(){state.playRequestId+=1;audio.stop();state.currentId=null;render();}
 function advance(direction) {
-  const available=new Set(state.tracks.map(track=>track.id));
+  const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const queue=state.playbackQueue.filter(id=>available.has(id));
   if(!queue.length){const initial=getPlaybackQueue();if(!initial.length)return;playTrack(initial[direction>0?0:initial.length-1],initial);return;}
   const next=getNextQueueIndex(queue,state.currentId,direction,state.repeatMode);
@@ -469,7 +472,9 @@ function toggleShuffle(){
   state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast(state.shuffle?'Перемешивание включено.':'Исходный порядок восстановлен.');
 }
 function queueTrackNext(id){
-  if(!state.tracks.some(track=>track.id===id))return;
+  const selected=state.tracks.find(track=>track.id===id);
+  if(!selected)return;
+  if(selected.externalUrl){toast('Внешние музыкальные сайты сохраняются как закладки и не добавляются в очередь.');return;}
   if(id===state.currentId){toast('Этот трек уже воспроизводится.');return;}
   const queue=state.playbackQueue.filter(trackId=>state.tracks.some(track=>track.id===trackId));
   if(state.currentId&&!queue.includes(state.currentId))queue.unshift(state.currentId);
@@ -612,7 +617,7 @@ function openMusicSource(url){
   const classified=classifyMusicUrl(url);
   if(!classified.ok||classified.kind!=='music-site'){toast('Ссылка не прошла проверку.');return;}
   const opened=window.open(classified.url,'_blank','noopener,noreferrer');
-  if(!opened)toast('Браузер заблокировал открытие. Ссылка сохранена в записи медиатеки.');
+  if(!opened){navigator.clipboard?.writeText(classified.url).then(()=>toast('Ссылка скопирована в буфер обмена.')).catch(()=>toast('Открытие заблокировано; ссылка сохранена в записи.'));}
 }
 async function importLyricsFile(file){
   if(!(file instanceof File)||file.size>100000){toast('Текст песни должен быть TXT/LRC и не превышать 100 КБ.');return;}
@@ -628,6 +633,7 @@ function renderLyricsPanel(){
   $('#lyrics-artist').textContent=track?.artist||'';
   const body=$('#lyrics-content');
   if(!track?.lyrics){body.innerHTML='<div class="lyrics-empty">Текст ещё не прикреплён.<br><button class="secondary-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track?.id||'')+'">Добавить текст</button></div>';return;}
+  state.activeLyric=-1;
   const parsed=parseLyrics(track.lyrics);
   if(!parsed.lines.length){body.textContent='Текст пуст.';return;}
   body.innerHTML=parsed.lines.map((line,index)=>{
@@ -635,7 +641,7 @@ function renderLyricsPanel(){
     const clickable=line.time===null?'':' data-action="seek-lyrics"';
     return '<div class="lyric-line '+(index===state.activeLyric?'active':'')+'" data-lyric-index="'+index+'"><button type="button"'+clickable+seconds+'>'+escapeHtml(line.text)+'</button></div>';
   }).join('');
-  syncLyricsHighlight(audio.getStatus().position);
+  syncLyricsHighlight(state.lyricsTrackId===state.currentId?audio.getStatus().position:0);
 }
 function syncLyricsHighlight(position){
   if(!state.lyricsOpen)return;
@@ -833,7 +839,7 @@ $('#account-button').addEventListener('click', () => {
 });
 $('#search').addEventListener('input', event => { state.search = event.target.value; render(); const input=$('#search'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); });
 $('#stop').addEventListener('click', stopPlayback);
-$('#lyrics-toggle').addEventListener('click',()=>{state.lyricsOpen=!state.lyricsOpen;renderLyricsPanel();});
+$('#lyrics-toggle').addEventListener('click',()=>{state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel();});
 $('#repeat').addEventListener('click', toggleRepeat);
 $('#shuffle').addEventListener('click', toggleShuffle);
 $('#play').addEventListener('click', async () => { if (!state.currentId) { const queue=getPlaybackQueue(); if (queue.length) await playTrack(queue[0],queue); return; } if (audio.getStatus().playing) audio.pause(); else await audio.resume().catch(error=>toast(error.message)); render(); });
