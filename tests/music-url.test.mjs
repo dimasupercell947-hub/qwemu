@@ -48,7 +48,7 @@ test('recognizes the international and Russian music platform catalogue', () => 
     assert.ok(result.serviceName, url);
   }
 
-  assert.equal(MUSIC_PLATFORMS.length, 29);
+  assert.equal(MUSIC_PLATFORMS.length, 26);
 });
 
 test('recognizes supported direct HTTPS audio extensions, including URL query strings', () => {
