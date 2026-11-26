@@ -130,7 +130,7 @@ assert.ok(css.includes('grid-template-columns:repeat(auto-fit,minmax(280px,1fr))
 assert.ok(css.includes('input[type=range]::-webkit-slider-thumb'));
 assert.ok(css.includes('box-shadow:0 12px 32px rgba(0,0,0,.6)'));
 const versionManifest = JSON.parse(read('public/version.json'));
-assert.match(versionManifest.version, /^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/);
+assert.match(versionManifest.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
 
