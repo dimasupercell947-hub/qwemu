@@ -107,19 +107,9 @@ export function classifyMusicUrl(input) {
   }
 
   url.hash = '';
-  const extension = extensionFromPath(url.pathname);
-  if (DIRECT_AUDIO_EXTENSIONS.has(extension)) {
-    return {
-      ok: true,
-      kind: 'direct-audio',
-      serviceId: 'direct-audio',
-      serviceName: 'Прямой аудиопоток',
-      url: url.href,
-      hostname: url.hostname,
-      extension
-    };
-  }
 
+  // An approved music platform remains a bookmark even when a slug happens
+  // to end with an audio-looking extension.
   const platform = matchPlatform(url);
   if (platform) {
     return {
@@ -131,6 +121,19 @@ export function classifyMusicUrl(input) {
       url: url.href,
       hostname: url.hostname,
       extension: ''
+    };
+  }
+
+  const extension = extensionFromPath(url.pathname);
+  if (DIRECT_AUDIO_EXTENSIONS.has(extension)) {
+    return {
+      ok: true,
+      kind: 'direct-audio',
+      serviceId: 'direct-audio',
+      serviceName: 'Прямой аудиопоток',
+      url: url.href,
+      hostname: url.hostname,
+      extension
     };
   }
 
