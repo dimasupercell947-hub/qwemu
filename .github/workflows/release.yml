@@ -36,7 +36,7 @@ jobs:
       - name: Verify release tag and version consistency
         shell: pwsh
         run: |
-          node -e 'const fs=require("fs"); const tag=process.env.GITHUB_REF_NAME.replace(/^v/i,""); const semver=/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(tag); const pkg=require("./package.json").version; const tauri=require("./src-tauri/tauri.conf.json").version; const cargo=fs.readFileSync("./src-tauri/Cargo.toml","utf8").match(/^version = "([^"]+)"/m)?.[1]; const html=fs.readFileSync("./public/index.html","utf8").match(/<meta name="app-version" content="([^"]+)"/)?.[1]; const versions=[pkg,tauri,cargo,html]; if(!semver||versions.some(v=>!v)||versions.some(v=>v!==tag)){console.error({tag,semver,package:pkg,tauri,cargo,html});process.exit(1)}'
+          node -e 'const fs=require("fs"); const tag=process.env.GITHUB_REF_NAME.replace(/^v/i,""); const parts=tag.split("."); const semver=parts.length===3 && parts.every(part=>/^(0|[1-9][0-9]*)$/.test(part) && Number.isSafeInteger(Number(part))); const pkg=require("./package.json").version; const tauri=require("./src-tauri/tauri.conf.json").version; const cargo=fs.readFileSync("./src-tauri/Cargo.toml","utf8").match(/^version = "([^"]+)"/m)?.[1]; const html=fs.readFileSync("./public/index.html","utf8").match(/<meta name="app-version" content="([^"]+)"/)?.[1]; const versions=[pkg,tauri,cargo,html]; if(!semver||versions.some(v=>!v)||versions.some(v=>v!==tag)){console.error({tag,semver,package:pkg,tauri,cargo,html});process.exit(1)}'
 
       - name: Install pinned Tauri CLI
         run: npm install --no-package-lock
