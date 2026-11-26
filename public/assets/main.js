@@ -407,7 +407,12 @@ async function playTrack(id, queueIds = null) {
   const requested=Array.isArray(queueIds)?queueIds:getPlaybackQueue();
   const unique=[...new Set(requested.filter(trackId=>available.has(trackId)))];
   if(!unique.includes(id))unique.unshift(id);
-  state.playbackQueue=state.shuffle&&!Array.isArray(queueIds)?shuffleQueue(unique,id):unique;
+  if(state.shuffle&&!Array.isArray(queueIds)) {
+    if(state.page!=='queue') state.shuffleBackup=[...unique];
+    state.playbackQueue=shuffleQueue(unique,id);
+  } else {
+    state.playbackQueue=unique;
+  }
   state.playbackIndex=state.playbackQueue.indexOf(id);
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
   const requestId=++state.playRequestId;
@@ -454,13 +459,27 @@ function queueTrackNext(id){
   const queue=state.playbackQueue.filter(trackId=>state.tracks.some(track=>track.id===trackId));
   if(state.currentId&&!queue.includes(state.currentId))queue.unshift(state.currentId);
   const without=queue.filter(trackId=>trackId!==id);
-  if(!state.currentId){playTrack(id,[id,...without]);return;}
+  if(!state.currentId){
+    const initial=[id,...without];
+    if(state.shuffle){state.shuffleBackup=[...initial];playTrack(id,shuffleQueue(initial,id));}
+    else playTrack(id,initial);
+    return;
+  }
   const at=without.indexOf(state.currentId);without.splice(at<0?0:at+1,0,id);
-  state.playbackQueue=without;state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast('Трек добавлен следующим в очередь.');
+  state.playbackQueue=without;
+  if(state.shuffle){
+    const backup=state.shuffleBackup.filter(trackId=>trackId!==id&&state.tracks.some(track=>track.id===trackId));
+    const backupAt=backup.indexOf(state.currentId);
+    backup.splice(backupAt<0?0:backupAt+1,0,id);
+    state.shuffleBackup=backup;
+  }
+  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast('Трек добавлен следующим в очередь.');
 }
 function removeQueuedTrack(id){
   if(id===state.currentId){toast('Текущий трек нельзя убрать из очереди до остановки.');return;}
-  state.playbackQueue=state.playbackQueue.filter(trackId=>trackId!==id);state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();
+  state.playbackQueue=state.playbackQueue.filter(trackId=>trackId!==id);
+  state.shuffleBackup=state.shuffleBackup.filter(trackId=>trackId!==id);
+  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();
 }
 function clearPlaybackQueue(){
   state.playbackQueue=state.currentId?[state.currentId]:[];state.shuffleBackup=[];state.playbackIndex=state.currentId?0:-1;render();toast('Очередь очищена. Текущий трек оставлен.');
@@ -514,6 +533,7 @@ async function deleteLibraryTrack(id) {
     state.playlists = state.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(trackId => trackId !== id) }));
     state.playbackQueue = state.playbackQueue.filter(trackId => trackId !== id);
     state.playHistory = state.playHistory.filter(entry => entry.trackId !== id);
+    state.shuffleBackup = state.shuffleBackup.filter(trackId => trackId !== id);
     state.playbackIndex = state.playbackQueue.indexOf(state.currentId);
     writeLocal('favorites', state.favorites);
     writeLocal('playlists', state.playlists);
