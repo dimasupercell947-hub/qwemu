@@ -123,3 +123,61 @@ button:disabled{cursor:not-allowed;opacity:.6}
 @media(max-width:980px){.player{grid-template-columns:minmax(155px,.7fr) minmax(270px,1.4fr) minmax(90px,.45fr);gap:9px;padding:10px 14px}.transport-buttons{gap:5px}}
 @media(max-width:700px){.player{height:150px;grid-template-columns:1fr auto;grid-template-rows:48px 46px 22px;gap:4px;padding:10px 14px}.transport{grid-column:1/3;grid-row:2;grid-template-rows:auto 0;gap:0}.transport-buttons{gap:6px}.transport-buttons button{width:32px;height:32px}.transport-buttons #play{width:40px;height:40px}.timeline{grid-column:1/3;grid-row:3}.volume-control{grid-column:2;grid-row:1;width:96px}.lyrics-panel{right:10px;bottom:164px;width:calc(100vw - 20px);max-height:56vh}.lyrics-content{padding:12px 15px}.lyric-line button{font-size:14px}.lyric-line.active button{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.lyric-line,.transport-buttons button,.track-row{transition:none!important}}
+
+
+/* QWEMU MUSIC 1.7.0 — Settings, controls and player finishing pass */
+.hotkey-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px 24px;margin-top:14px}
+.hotkey-item{display:flex;align-items:center;gap:12px;min-width:0;color:var(--muted);font-size:13px;line-height:1.55}
+.hotkey-item>span:last-child{min-width:0}
+.hotkey-keys{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;white-space:nowrap;color:var(--text)}
+.hotkey-keys kbd{white-space:nowrap;background:#232326;border:1px solid #38383d;border-bottom:2px solid #38383d;border-radius:6px;padding:3px 7px;color:#f0eef0;font-family:inherit;font-size:11px;font-weight:600;line-height:1.4;box-shadow:inset 0 1px rgba(255,255,255,.05),0 1px 0 rgba(0,0,0,.35)}
+.hotkey-note{margin:16px 0 0!important;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
+.form-grid label.motion-setting{display:inline-flex;align-items:center;gap:8px;justify-self:start;min-height:42px}
+.form-grid .motion-setting input[type=checkbox]{width:auto;min-width:16px;height:16px;flex:0 0 auto;margin:0;accent-color:#ed8750}
+input[type=range]{-webkit-appearance:none;appearance:none;accent-color:#ed8750;height:6px;min-height:6px;border:0;border-radius:999px;background:linear-gradient(90deg,#d94b42 0%,#ed8750 100%);cursor:pointer;outline-offset:5px}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border:0;border-radius:999px;background:linear-gradient(90deg,#d94b42 0%,#ed8750 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:15px;height:15px;margin-top:-4.5px;border:2px solid #fff;border-radius:50%;background:#ed8750;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+input[type=range]::-moz-range-track{height:6px;border:0;border-radius:999px;background:#3b3438}
+input[type=range]::-moz-range-progress{height:6px;border-radius:999px;background:linear-gradient(90deg,#d94b42 0%,#ed8750 100%)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border:2px solid #fff;border-radius:50%;background:#ed8750;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+.eq-band input[type=range]{width:14px;height:100%;min-height:0;padding:0;background:transparent;writing-mode:vertical-lr;direction:rtl}
+.eq-band input[type=range]::-webkit-slider-runnable-track{width:6px;height:100%;background:linear-gradient(90deg,#d94b42 0%,#ed8750 100%)}
+.eq-band input[type=range]::-webkit-slider-thumb{margin:-1px 0 0 -4.5px}
+.eq-band input[type=range]::-moz-range-track{width:6px;height:100%;background:#3b3438}
+.eq-band input[type=range]::-moz-range-progress{width:6px;background:linear-gradient(90deg,#d94b42 0%,#ed8750 100%)}
+.eq-panel{box-shadow:0 12px 32px rgba(0,0,0,.6)}
+.eq-toggle.on{border-color:#e16a4b;color:#fff;background:linear-gradient(115deg,#d94b42,#ed8750);box-shadow:0 4px 14px rgba(217,75,66,.28)}
+:root[data-theme=light] .eq-panel{box-shadow:0 12px 32px rgba(0,0,0,.32)}
+.track-row{grid-template-columns:42px minmax(0,1fr) auto}
+.track-meta{min-width:0;overflow:hidden}
+.track-meta b,.track-copy b{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-actions{min-width:0;flex:0 0 auto;flex-wrap:nowrap}
+.transport{grid-template-rows:20px 38px 20px;gap:2px;min-height:82px}
+.qwemu-wave{display:block;width:100%;height:20px;min-height:20px;max-height:20px;visibility:visible;flex:none}
+.transport-buttons{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;min-height:38px;margin:0;white-space:nowrap}
+.transport-buttons button{flex:0 0 auto}
+.transport-buttons #shuffle,.transport-buttons #prev,.transport-buttons #next,.transport-buttons #repeat{width:36px;height:36px}
+.transport-buttons #play{width:44px;height:44px}
+.transport-buttons #lyrics-toggle{position:absolute;right:0;width:34px;height:34px;margin-left:3px}
+.update-notice{position:fixed;z-index:60;right:22px;bottom:126px;display:flex;align-items:center;justify-content:space-between;gap:18px;width:min(460px,calc(100vw - 32px));padding:15px 16px;background:linear-gradient(135deg,#241a1e,#171518);border:1px solid #75433c;border-radius:15px;box-shadow:0 16px 42px rgba(0,0,0,.58);color:#f7f1f1}
+.update-notice-copy{display:grid;gap:4px;min-width:0}
+.update-notice-title{font-size:14px;line-height:1.4;color:#ffb07e}
+.update-notice-description{font-size:11px;line-height:1.45;color:#b9adb2}
+.update-notice-actions{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+.update-notice-download{display:inline-flex;align-items:center;justify-content:center;padding:9px 14px;background:linear-gradient(115deg,#d94b42,#ed8750);border-radius:9px;color:#fff;text-decoration:none;font-size:12px;font-weight:750;white-space:nowrap}
+.update-notice-download:hover{filter:brightness(1.08)}
+.update-notice-dismiss{width:28px;height:28px;padding:0;border:1px solid #514047;border-radius:8px;background:#ffffff08;color:#d8ccd1;font-size:19px;line-height:1}
+@media(max-width:700px){
+  .player{height:168px;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:48px 84px;gap:4px 12px;padding:9px 13px}
+  body{padding-bottom:168px}
+  .transport{grid-column:1/-1;grid-row:2;grid-template-columns:minmax(0,1fr);grid-template-rows:20px 40px 20px;gap:2px;min-height:84px}
+  .qwemu-wave{grid-column:1;grid-row:1}
+  .transport-buttons{grid-column:1;grid-row:2;gap:6px}
+  .timeline{grid-column:1;grid-row:3}
+  .transport-buttons #shuffle,.transport-buttons #prev,.transport-buttons #next,.transport-buttons #repeat{width:32px;height:32px}
+  .transport-buttons #play{width:40px;height:40px}
+  .transport-buttons #lyrics-toggle{width:30px;height:30px}
+  .row-actions{flex-wrap:wrap}
+  .update-notice{right:10px;bottom:178px;gap:10px;padding:12px}
+}
+@media(max-width:420px){.hotkey-item{gap:8px;font-size:12px}.hotkey-grid{column-gap:12px}.transport-buttons{gap:4px}}

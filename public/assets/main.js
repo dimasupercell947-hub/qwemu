@@ -14,6 +14,9 @@ import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 
 const $ = selector => document.querySelector(selector);
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '1.7.0';
+const RELEASES_URL = 'https://github.com/dimasupercell947-hub/qwemu/releases/latest';
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/public/version.json';
 const storage = new StorageAdapter();
 const libraryStore = new LibraryStore();
 const desktopRuntime = globalThis.QWEMU_DESKTOP === true;
@@ -40,7 +43,7 @@ const state = {
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
   currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
-  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
+  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Автоматическая проверка обновлений выполняется при запуске.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -203,7 +206,7 @@ function pageContent() {
     if (desktopRuntime) {
       return `<div class="page-head"><div><div class="eyebrow">DESKTOP PREFERENCES</div><h1 class="page-title">Настройки</h1><p class="muted">Параметры приложения сохраняются локально на этом компьютере.</p></div></div>
         <section class="surface"><h2>Внешний вид</h2><div class="form-grid">
-          <label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${theme}</option>`).join('')}</select></label>
+          <label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${({'dark-red':'Тёмная коралловая','orange-night':'Оранжевая ночь',midnight:'Полночная','pure-black':'Абсолютно чёрная',light:'Светлая'}[theme]||theme)}</option>`).join('')}</select></label>
           <label>Громкость по умолчанию<input id="volume-setting" type="range" min="0" max="1" step="0.01" value="${state.settings.volume}"></label>
           <label class="motion-setting"><input id="reduced-motion-setting" type="checkbox" ${state.settings.reducedMotion?'checked':''}> Уменьшить анимации</label>
           <label class="motion-setting"><input id="background-playback-setting" type="checkbox" ${state.settings.backgroundPlayback!==false?'checked':''}> Фоновое воспроизведение</label>
@@ -212,13 +215,18 @@ function pageContent() {
           <p class="muted">Аудиофайлы хранятся в IndexedDB профиля приложения. Они не загружаются в интернет и не отправляются в Cloudflare. Не очищай данные приложения, чтобы не удалить сохранённую коллекцию.</p>
           <p class="muted">Облачная авторизация и синхронизация доступны в отдельной Web Edition.</p>
         </section>
-        <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
-        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop 1.7.0. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <section class="surface hotkeys-section" style="margin-top:14px"><h2>Горячие клавиши</h2><div class="hotkey-grid">
+          <div class="hotkey-item"><span class="hotkey-keys"><kbd>Пробел</kbd></span><span>Пауза / воспроизведение</span></div>
+          <div class="hotkey-item"><span class="hotkey-keys"><kbd>←</kbd><span>+</span><kbd>→</kbd></span><span>Перемотка на 5 секунд</span></div>
+          <div class="hotkey-item"><span class="hotkey-keys"><kbd>Ctrl</kbd><span>+</span><kbd>←</kbd> / <kbd>→</kbd></span><span>Предыдущий / следующий трек</span></div>
+          <div class="hotkey-item"><span class="hotkey-keys"><kbd>Ctrl</kbd><span>+</span><kbd>K</kbd></span><span>Поиск по медиатеке</span></div>
+        </div><p class="muted hotkey-note">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Проверка обновлений выполняется автоматически при запуске. Скачивание установщика — через GitHub Releases.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
         <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
     const conflicts=Object.entries(state.cloudConflicts).map(([key])=>`<article class="surface" style="margin-top:10px"><h3>${conflictNames[key]||key}</h3><p class="muted">Эти данные были изменены на другом устройстве. Выбери, какую версию оставить.</p><button class="secondary-button" data-action="resolve-cloud-remote" data-key="${key}">Использовать облачную</button> <button class="primary-button" data-action="resolve-cloud-local" data-key="${key}">Оставить эту версию</button></article>`).join('');
-    return `<div class="page-head"><div><div class="eyebrow">PREFERENCES</div><h1 class="page-title">Настройки</h1><p class="muted">Настройки веб-версии отдельно от Desktop Edition.</p></div></div><section class="surface"><h2>Внешний вид</h2><div class="form-grid"><label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${theme}</option>`).join('')}</select></label><label>Громкость по умолчанию<input id="volume-setting" type="range" min="0" max="1" step="0.01" value="${state.settings.volume}"></label><label class="motion-setting"><input id="reduced-motion-setting" type="checkbox" ${state.settings.reducedMotion?'checked':''}> Уменьшить анимации</label></div></section><section class="surface" style="margin-top:14px"><h2>Данные и приватность</h2><p class="muted">Аудиофайлы обрабатываются браузером и не передаются в Cloudflare. При входе синхронизируются только структурированные метаданные аккаунта.</p><button class="secondary-button" data-action="sync">Синхронизировать метаданные</button></section>${conflicts?'<section class="surface" style="margin-top:14px"><h2>Конфликты синхронизации</h2><p class="muted">Локальные изменения сохранены и не перезаписаны автоматически.</p>'+conflicts+'</section>':''}`;
+    return `<div class="page-head"><div><div class="eyebrow">PREFERENCES</div><h1 class="page-title">Настройки</h1><p class="muted">Настройки веб-версии отдельно от Desktop Edition.</p></div></div><section class="surface"><h2>Внешний вид</h2><div class="form-grid"><label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${({'dark-red':'Тёмная коралловая','orange-night':'Оранжевая ночь',midnight:'Полночная','pure-black':'Абсолютно чёрная',light:'Светлая'}[theme]||theme)}</option>`).join('')}</select></label><label>Громкость по умолчанию<input id="volume-setting" type="range" min="0" max="1" step="0.01" value="${state.settings.volume}"></label><label class="motion-setting"><input id="reduced-motion-setting" type="checkbox" ${state.settings.reducedMotion?'checked':''}> Уменьшить анимации</label></div></section><section class="surface" style="margin-top:14px"><h2>Данные и приватность</h2><p class="muted">Аудиофайлы обрабатываются браузером и не передаются в Cloudflare. При входе синхронизируются только структурированные метаданные аккаунта.</p><button class="secondary-button" data-action="sync">Синхронизировать метаданные</button></section>${conflicts?'<section class="surface" style="margin-top:14px"><h2>Конфликты синхронизации</h2><p class="muted">Локальные изменения сохранены и не перезаписаны автоматически.</p>'+conflicts+'</section>':''}`;
   }
   if (state.page === 'profile') return `<div class="page-head"><div><div class="eyebrow">ACCOUNT</div><h1 class="page-title">Профиль</h1></div></div>${state.user ? `<section class="surface"><h2>${escapeHtml(state.user.displayName)}</h2><p class="muted">@${escapeHtml(state.user.username)} · ${escapeHtml(state.user.email||'Почта не указана')}</p><form id="profile-edit-form" class="form-grid"><label>Отображаемое имя<input name="displayName" required minlength="2" maxlength="32" value="${escapeHtml(state.user.displayName)}"></label><label>Email<input name="email" type="email" maxlength="160" value="${escapeHtml(state.user.email||'')}"></label><button class="primary-button" type="submit">Сохранить профиль</button></form><button class="secondary-button" data-action="logout">Выйти</button></section>` : `<div class="empty-state"><b>Ты используешь локальный режим</b>Войди в аккаунт, чтобы сохранять плейлисты и настройки в веб-версии.<br><br><button class="primary-button" data-action="open-auth">Войти или зарегистрироваться</button></div>`}`;
   return '';
@@ -684,24 +692,66 @@ function compareVersions(left,right){
   for(let i=0;i<Math.max(a.length,b.length);i++){const diff=(a[i]||0)-(b[i]||0);if(diff)return Math.sign(diff);}
   return 0;
 }
-async function checkForUpdates(){
-  const status=$('#update-status');if(!status)return;
-  status.textContent='Проверяем последнюю опубликованную версию…';
+function parseRemoteVersion(value){
+  const version=String(value||'').replace(/^v/i,'');
+  if(!/^\\d+(?:\\.\\d+){1,3}$/.test(version))throw new Error('Некорректный номер версии');
+  return version;
+}
+async function fetchUpdateDocument(url){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),6500);
   try{
-    let latest=null,source='GitHub Releases';
-    const release=await fetch('https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest',{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
-    if(release.ok){const data=await release.json();latest=String(data.tag_name||'').replace(/^v/i,'');}
-    else if(release.status===404){
-      source='main';
-      const response=await fetch('https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/package.json',{cache:'no-store'});
-      if(!response.ok)throw new Error('GitHub вернул '+response.status);
-      latest=String((await response.json()).version||'');
-    }else throw new Error('GitHub API: '+release.status);
-    if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
-    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,'1.7.0')===0?('Установлена актуальная версия 1.7.0 (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена 1.7.0 — она новее main; страницу релизов можно проверить вручную.');
-    status.textContent=state.updateStatus;
-    if(compareVersions(latest,'1.7.0')>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
-  }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
+    const response=await fetch(url,{headers:{Accept:'application/json'},cache:'no-store',signal:controller.signal});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    return await response.json();
+  }finally{clearTimeout(timeout);}
+}
+function showUpdateNotice(version){
+  let notice=$('#update-notice');
+  if(!notice){
+    notice=document.createElement('aside');notice.id='update-notice';notice.className='update-notice';notice.setAttribute('role','status');
+    const copy=document.createElement('div');copy.className='update-notice-copy';
+    const title=document.createElement('strong');title.className='update-notice-title';
+    const description=document.createElement('span');description.className='update-notice-description';
+    copy.append(title,description);
+    const actions=document.createElement('div');actions.className='update-notice-actions';
+    const download=document.createElement('a');download.className='update-notice-download';download.href=RELEASES_URL;download.target='_blank';download.rel='noopener noreferrer';download.textContent='Скачать';
+    const dismiss=document.createElement('button');dismiss.className='update-notice-dismiss';dismiss.type='button';dismiss.dataset.action='dismiss-update';dismiss.setAttribute('aria-label','Скрыть уведомление об обновлении');dismiss.textContent='×';
+    actions.append(download,dismiss);notice.append(copy,actions);document.body.append(notice);
+  }
+  notice.querySelector('.update-notice-title').textContent='Доступно обновление '+version;
+  notice.querySelector('.update-notice-description').textContent='Новая версия QWEMU MUSIC Desktop опубликована на GitHub.';
+}
+async function checkForUpdates(options={}){
+  const status=$('#update-status');
+  if(status)status.textContent='Проверяем опубликованную версию…';
+  state.updateStatus='Проверяем опубликованную версию…';
+  try{
+    const checks=await Promise.allSettled([
+      fetchUpdateDocument(UPDATE_MANIFEST_URL+'?cache='+Date.now()).then(data=>({version:parseRemoteVersion(data.version),source:'резервный манифест'})),
+      fetchUpdateDocument('https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest').then(data=>({version:parseRemoteVersion(data.tag_name),source:'GitHub Releases'}))
+    ]);
+    const candidates=checks.filter(result=>result.status==='fulfilled').map(result=>result.value);
+    if(!candidates.length){
+      const details=checks.map(result=>result.status==='rejected'?(result.reason?.message||'ошибка сети'):'').filter(Boolean).join('; ');
+      throw new Error('GitHub не ответил через основной и резервный каналы. '+details);
+    }
+    candidates.sort((a,b)=>compareVersions(b.version,a.version));
+    const latest=candidates[0],comparison=compareVersions(latest.version,APP_VERSION);
+    if(comparison>0){
+      state.updateStatus='Доступно обновление '+latest.version+'. Нажми «Скачать», чтобы открыть установщики на GitHub.';
+      showUpdateNotice(latest.version);
+    }else{
+      $('#update-notice')?.remove();
+      state.updateStatus=comparison===0?'Установлена актуальная версия '+APP_VERSION+'. Проверено: '+latest.source+'.':'Установлена версия '+APP_VERSION+', новее опубликованной '+latest.version+'.';
+    }
+    if(status)status.textContent=state.updateStatus;
+    return {available:comparison>0,version:latest.version};
+  }catch(error){
+    state.updateStatus='Не удалось проверить обновления: '+(error?.message||error);
+    if(status)status.textContent=state.updateStatus;
+    return {available:false,error};
+  }
 }
 function exportPlaylist(id){
   const playlist=state.playlists.find(item=>item.id===id);if(!playlist)return;
@@ -772,6 +822,7 @@ document.addEventListener('click', async event => {
   else if (name === 'add-link') await addMusicLink();
   else if (name === 'plus-demo') showPlusDemo();
   else if (name === 'check-updates') await checkForUpdates();
+  else if (name === 'dismiss-update') $('#update-notice')?.remove();
   else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel(); }
   else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.lyricsTrackId=id;state.lyricsOpen=true;renderLyricsPanel();} }
   else if (name === 'lyrics-close') { state.lyricsOpen=false;state.lyricsTrackId=null;state.activeLyric=-1;renderLyricsPanel(); }
@@ -811,7 +862,6 @@ document.addEventListener('click', async event => {
   else if (name === 'sync') { await loadCloud(); toast(state.cloudReady ? 'Проверка синхронизации завершена.' : 'Синхронизация пока недоступна.'); }
   else if (name === 'resolve-cloud-local') resolveCloudConflict(key,'local');
   else if (name === 'resolve-cloud-remote') resolveCloudConflict(key,'remote');
-  else if (name === 'stop') stopPlayback();
   else if (name === 'repeat') toggleRepeat();
 });
 document.addEventListener('change', event => {
@@ -838,7 +888,6 @@ $('#account-button').addEventListener('click', () => {
   setPage(state.user ? 'profile' : (openAuth(), state.page));
 });
 $('#search').addEventListener('input', event => { state.search = event.target.value; render(); const input=$('#search'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); });
-$('#stop').addEventListener('click', stopPlayback);
 $('#lyrics-toggle').addEventListener('click',()=>{state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel();});
 $('#repeat').addEventListener('click', toggleRepeat);
 $('#shuffle').addEventListener('click', toggleShuffle);
@@ -881,6 +930,8 @@ installMediaSessionHandlers();
 window.addEventListener('pagehide', () => { state.playRequestId += 1; audio.destroy(); }, { once: true });
 
 applyTheme(); render();
+const versionLabel=$('#app-version-label');if(versionLabel)versionLabel.textContent=APP_VERSION;
+void checkForUpdates({silent:true});
 if (desktopRuntime) {
   libraryRestorePromise = restoreDesktopLibrary()
     .catch(error => { toast('Не удалось восстановить медиатеку: ' + (error?.message || error)); })

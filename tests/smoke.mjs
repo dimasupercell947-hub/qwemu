@@ -9,6 +9,7 @@ const read = path => readFileSync(join(root, path), 'utf8');
 
 const required = [
   'public/index.html',
+  'public/version.json',
   'public/assets/main.js',
   'public/assets/library-store.js',
   'public/assets/desktop-bridge.js',
@@ -38,16 +39,20 @@ for (const path of required) {
   assert.ok(existsSync(join(root, path)), 'Missing required file: ' + path);
 }
 
+const packageVersion = JSON.parse(read('package.json')).version;
+const html = read('public/index.html');
+const htmlVersion = html.match(/<meta name="app-version" content="([^"]+)"/)?.[1];
+assert.ok(htmlVersion, 'Missing app-version meta');
+assert.equal(htmlVersion, packageVersion, 'HTML app version must match package.json');
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.7.0');
+assert.equal(config.version, packageVersion);
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
 assert.ok(config.app.windows.some(window => window.label === 'main' && window.minWidth === 960));
 assert.ok(config.app.security.csp.includes("script-src 'self'"));
 
-const html = read('public/index.html');
 assert.ok(html.includes('assets/desktop-bridge.js'));
 assert.ok(html.includes('assets/eq.js'));
 assert.ok(html.includes('assets/ui-overhaul.css'));
@@ -107,6 +112,17 @@ assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
 assert.ok(read('public/assets/audio-formats.js').includes('AUDIO_FORMATS'));
 assert.ok(read('public/index.html').includes('id="shuffle"'));
+assert.ok(read('public/index.html').includes('id="repeat"'));
+assert.ok(!read('public/index.html').includes('id="stop"'), 'Stop button must not be rendered');
+assert.ok(main.includes('checkForUpdates({silent:true})'), 'Update check must run on startup');
+assert.ok(main.includes('UPDATE_MANIFEST_URL'), 'CDN-backed update manifest must be available');
+assert.ok(main.includes('Promise.allSettled'), 'Updater must have fallback sources');
+assert.ok(css.includes('.hotkey-grid'));
+assert.ok(css.includes('grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'));
+assert.ok(css.includes('input[type=range]::-webkit-slider-thumb'));
+assert.ok(css.includes('box-shadow:0 12px 32px rgba(0,0,0,.6)'));
+const versionManifest = JSON.parse(read('public/version.json'));
+assert.match(versionManifest.version, /^\d+(?:\.\d+){1,3}$/);
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
 
@@ -132,5 +148,6 @@ assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "2" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
 
-assert.equal(JSON.parse(read('package.json')).version, '1.7.0');
+assert.equal(JSON.parse(read('package.json')).version, packageVersion);
+assert.ok(read('src-tauri/Cargo.toml').includes('version = "' + packageVersion + '"'));
 console.log('QWEMU Desktop 1.7.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
