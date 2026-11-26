@@ -1,12 +1,12 @@
 {
   "name": "qwemu-music-desktop",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "check:frontend": "node --check public/assets/main.js && node --check public/assets/library-store.js && node --check public/assets/playback-queue.js && node --check public/assets/desktop-bridge.js && node --check public/assets/audio-adapter.js && node --check public/assets/storage-adapter.js && node --check public/assets/eq-state.js && node --check public/assets/eq.js && node --check public/assets/history-state.js && node --check public/assets/track-sort.js && node --check public/assets/playlist-io.js",
-    "test": "node --test tests/library-store.test.mjs tests/playback-queue.test.mjs tests/eq-state.test.mjs tests/history-state.test.mjs tests/track-sort.test.mjs tests/playlist-io.test.mjs && node tests/smoke.mjs",
+    "check:frontend": "node --check public/assets/main.js && node --check public/assets/library-store.js && node --check public/assets/playback-queue.js && node --check public/assets/desktop-bridge.js && node --check public/assets/audio-adapter.js && node --check public/assets/storage-adapter.js && node --check public/assets/eq-state.js && node --check public/assets/eq.js && node --check public/assets/history-state.js && node --check public/assets/track-sort.js && node --check public/assets/playlist-io.js && node --check public/assets/lyrics-state.js && node --check public/assets/music-url.js && node --check public/assets/audio-formats.js",
+    "test": "node --test tests/library-store.test.mjs tests/playback-queue.test.mjs tests/eq-state.test.mjs tests/history-state.test.mjs tests/track-sort.test.mjs tests/playlist-io.test.mjs tests/lyrics-state.test.mjs tests/music-url.test.mjs tests/audio-formats.test.mjs && node tests/smoke.mjs",
     "check": "npm run check:frontend && npm test"
   },
   "devDependencies": {

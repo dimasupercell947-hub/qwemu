@@ -40,7 +40,7 @@ for (const path of required) {
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.6.0');
+assert.equal(config.version, '1.7.0');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
@@ -102,6 +102,10 @@ assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should b
 
 assert.ok(read('public/assets/library-store.js').includes('indexedDB.open'));
 assert.ok(read('public/assets/library-store.js').includes('updateMetadata'));
+assert.ok(read('public/assets/library-store.js').includes('putLink'));
+assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
+assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
+assert.ok(read('public/assets/audio-formats.js').includes('AUDIO_FORMATS'));
 assert.ok(read('public/index.html').includes('id="shuffle"'));
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
@@ -128,5 +132,5 @@ assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "2" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
 
-assert.equal(JSON.parse(read('package.json')).version, '1.6.0');
-console.log('QWEMU Desktop 1.6.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
+assert.equal(JSON.parse(read('package.json')).version, '1.7.0');
+console.log('QWEMU Desktop 1.7.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');

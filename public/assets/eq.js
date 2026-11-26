@@ -128,7 +128,17 @@ import { EQ_BANDS, EQ_PRESETS, calculateEqHeadroomGain, matchingEqPreset, normal
       filters = nextFilters;
       analyser = meter;
       analyserData = new Uint8Array(meter.frequencyBinCount);
-      applySettings();
+    
+  document.addEventListener('visibilitychange', () => {
+    const media = document.getElementById('audio');
+    if (!media || media.paused || !audioContext) return;
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+  });
+  document.addEventListener('qwemu-foreground', () => {
+    const media = document.getElementById('audio');
+    if (media && !media.paused && audioContext?.state === 'suspended') audioContext.resume().catch(() => {});
+  });
+  applySettings();
       return true;
     } catch (error) {
       context.close().catch(() => {});

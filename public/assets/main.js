@@ -9,6 +9,9 @@ import { buildPlaybackQueue, getNextQueueIndex, shuffleQueue } from './playback-
 import { HISTORY_LIMIT, normalizePlayHistory, recordPlay, resolveHistoryTracks } from './history-state.js';
 import { TRACK_SORT_MODES, sortTracks } from './track-sort.js';
 import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
+import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
+import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
+import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
@@ -29,7 +32,7 @@ const validThemes = ['dark-red','orange-night','midnight','pure-black','light'];
 function normalizeSettings(value) {
   const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{};
   const volume=Number(source.volume);
-  return { theme: validThemes.includes(source.theme)?source.theme:'dark-red', volume:Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0.8, reducedMotion:source.reducedMotion===true };
+  return { theme: validThemes.includes(source.theme)?source.theme:'dark-red', volume:Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0.8, reducedMotion:source.reducedMotion===true, backgroundPlayback:source.backgroundPlayback!==false };
 }
 const state = {
   page: 'home', tracks: [], favorites: Array.isArray(savedFavorites)?savedFavorites.filter(value=>typeof value==='string').slice(0,5000):[],
@@ -37,6 +40,7 @@ const state = {
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
   currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
+  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -145,14 +149,17 @@ function renderTracks(list) {
     const empty=state.page==='queue'?['Очередь пуста','Запусти трек или добавь композицию следующей.']:
       state.page==='history'?['История пока пуста','Начни воспроизведение — последние 100 композиций появятся здесь.']:
       ['Здесь пока пусто',desktopRuntime?'Добавь аудиофайлы. Они сохранятся в медиатеке после перезапуска.':'Добавь аудиофайлы. Они доступны до закрытия вкладки.'];
-    return '<div class="empty-state"><b>'+empty[0]+'</b>'+empty[1]+'<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div>';
+    return '<div class="empty-state"><b>'+empty[0]+'</b>'+empty[1]+'<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label> <button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button></div>';
   }
   return '<div class="track-list">'+list.map(track=>{
     const details=[track.artist||'Неизвестный исполнитель',track.album||'',track.duration?formatTime(track.duration):'',
       track.lastPlayedAt?'Прослушан: '+new Date(track.lastPlayedAt).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short'}):''].filter(Boolean).join(' · ');
     const actions=[
-      '<button class="small-button" data-action="play-track" data-id="'+escapeHtml(track.id)+'" aria-label="Воспроизвести '+escapeHtml(track.title)+'" title="Воспроизвести">▶</button>',
+      track.externalUrl
+        ? '<button class="small-button" data-action="open-source" data-id="'+escapeHtml(track.id)+'" aria-label="Открыть музыкальный сайт" title="Открыть музыкальный сайт">↗</button>'
+        : '<button class="small-button" data-action="play-track" data-id="'+escapeHtml(track.id)+'" aria-label="Воспроизвести '+escapeHtml(track.title)+'" title="Воспроизвести">▶</button>',
       '<button class="small-button '+(state.favorites.includes(track.id)?'active':'')+'" data-action="favorite" data-id="'+escapeHtml(track.id)+'" aria-label="Избранное" title="Избранное">♥</button>',
+      '<button class="small-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track.id)+'" aria-label="Текст песни" title="Текст песни">≡</button>',
       state.page==='queue'?(track.id===state.currentId?'':'<button class="small-button" data-action="queue-remove" data-id="'+escapeHtml(track.id)+'" aria-label="Убрать из очереди" title="Убрать из очереди">−</button>'):
         '<button class="small-button" data-action="queue-next" data-id="'+escapeHtml(track.id)+'" aria-label="Добавить следующим" title="Добавить следующим">↥</button>',
       '<button class="small-button" data-action="edit-track" data-id="'+escapeHtml(track.id)+'" aria-label="Изменить метаданные" title="Изменить метаданные">✎</button>',
@@ -161,7 +168,8 @@ function renderTracks(list) {
         '<button class="small-button" data-action="add-playlist-track" data-id="'+escapeHtml(track.id)+'" aria-label="Добавить в плейлист" title="Добавить в плейлист">＋</button>',
       desktopRuntime?'<button class="small-button delete-track-button" data-action="delete-track" data-id="'+escapeHtml(track.id)+'" aria-label="Удалить '+escapeHtml(track.title)+' из медиатеки" title="Удалить из медиатеки">×</button>':''
     ].join('');
-    return '<article class="track-row '+(track.id===state.currentId?'is-playing':'')+'"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>'+escapeHtml(track.title)+'</b><span>'+escapeHtml(details)+'</span></div><div class="row-actions">'+actions+'</div></article>';
+    const sourceBadge=track.externalUrl?' · Ссылка':track.url?' · Поток':'';
+    return '<article class="track-row '+(track.id===state.currentId?'is-playing':'')+'"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>'+escapeHtml(track.title)+'</b><span>'+escapeHtml(details+sourceBadge)+'</span></div><div class="row-actions">'+actions+'</div></article>';
   }).join('')+'</div>';
 }
 function librarySummary() {
@@ -172,11 +180,11 @@ function librarySummary() {
 function pageContent() {
   if(state.page==='home') {
     const recent=state.search.trim()?visibleTracks():[...state.tracks].slice(-6).reverse();
-    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+librarySummary()+
+    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+librarySummary()+
     '<div class="section-head"><div><h2>Недавно добавленные</h2><p>Треки из локальной медиатеки</p></div><button class="text-button" data-page="library">Вся медиатека →</button></div>'+renderTracks(recent)+
     '<div class="section-head"><div><h2>Недавно прослушано</h2><p>Последние 4 композиции</p></div><button class="text-button" data-page="history">Вся история →</button></div>'+renderTracks(historyTracks(4));
   }
-  if(state.page==='library') return '<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные хранятся локально и доступны после перезапуска.</p></div><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div><div class="library-toolbar">'+sortControl()+'<span class="muted">'+visibleTracks().length+' треков</span></div>'+renderTracks(visibleTracks());
+  if(state.page==='library') return '<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные хранятся локально и доступны после перезапуска.</p></div><div class="queue-toolbar"><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить ссылку</button></div></div><div class="library-toolbar">'+sortControl()+'<span class="muted">'+visibleTracks().length+' треков</span></div>'+renderTracks(visibleTracks());
   if(state.page==='favorites') return '<div class="page-head"><div><div class="eyebrow">YOUR FAVORITES</div><h1 class="page-title">Избранное</h1><p class="muted">Список избранного хранится локально.</p></div></div><div class="library-toolbar">'+sortControl()+'</div>'+renderTracks(visibleTracks());
   if(state.page==='history') return '<div class="page-head"><div><div class="eyebrow">LISTENING HISTORY</div><h1 class="page-title">История прослушивания</h1><p class="muted">Последние 100 уникальных композиций; повтор поднимает трек вверх списка.</p></div><button class="secondary-button" data-action="clear-history">Очистить историю</button></div>'+renderTracks(visibleTracks());
   if(state.page==='queue') {
@@ -198,12 +206,15 @@ function pageContent() {
           <label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${theme}</option>`).join('')}</select></label>
           <label>Громкость по умолчанию<input id="volume-setting" type="range" min="0" max="1" step="0.01" value="${state.settings.volume}"></label>
           <label class="motion-setting"><input id="reduced-motion-setting" type="checkbox" ${state.settings.reducedMotion?'checked':''}> Уменьшить анимации</label>
+          <label class="motion-setting"><input id="background-playback-setting" type="checkbox" ${state.settings.backgroundPlayback!==false?'checked':''}> Фоновое воспроизведение</label>
         </div></section>
         <section class="surface" style="margin-top:14px"><h2>Локальная медиатека</h2>
           <p class="muted">Аудиофайлы хранятся в IndexedDB профиля приложения. Они не загружаются в интернет и не отправляются в Cloudflare. Не очищай данные приложения, чтобы не удалить сохранённую коллекцию.</p>
           <p class="muted">Облачная авторизация и синхронизация доступны в отдельной Web Edition.</p>
         </section>
-        <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>`;
+        <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop 1.7.0. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
     const conflicts=Object.entries(state.cloudConflicts).map(([key])=>`<article class="surface" style="margin-top:10px"><h3>${conflictNames[key]||key}</h3><p class="muted">Эти данные были изменены на другом устройстве. Выбери, какую версию оставить.</p><button class="secondary-button" data-action="resolve-cloud-remote" data-key="${key}">Использовать облачную</button> <button class="primary-button" data-action="resolve-cloud-local" data-key="${key}">Оставить эту версию</button></article>`).join('');
@@ -228,12 +239,15 @@ function render() {
   const current = state.tracks.find(track => track.id === state.currentId);
   $('#player-title').textContent = current?.title || 'Ничего не воспроизводится';
   $('#player-artist').textContent = current?.artist || 'Добавь аудиофайлы из своей коллекции';
-  $('#cover').textContent = current ? '♫' : 'Q';
-  $('#play').textContent = audio.getStatus().playing ? 'Ⅱ' : '▶';
+  $('#cover').textContent = '';
+  $('#cover').style.backgroundImage = "url('./assets/logo.svg')";
+  $('#play').innerHTML = audio.getStatus().playing ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM15 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+  $('#play').classList.toggle('playing',audio.getStatus().playing);
   const repeatLabels={off:'Повтор выключен',all:'Повтор плейлиста',one:'Повтор текущего трека'};
-  $('#repeat').classList.toggle('active',state.repeatMode!=='off');$('#repeat').dataset.mode=state.repeatMode;$('#repeat').title=repeatLabels[state.repeatMode];$('#repeat').setAttribute('aria-label',repeatLabels[state.repeatMode]);$('#repeat').textContent=state.repeatMode==='one'?'↻¹':'↻';
-  $('#shuffle').classList.toggle('active',state.shuffle);$('#shuffle').setAttribute('aria-pressed',String(state.shuffle));$('#shuffle').setAttribute('aria-label',state.shuffle?'Выключить перемешивание':'Включить перемешивание');
+  $('#repeat').classList.toggle('active',state.repeatMode!=='off');$('#repeat').dataset.mode=state.repeatMode;$('#repeat').title=repeatLabels[state.repeatMode];$('#repeat').setAttribute('aria-label',repeatLabels[state.repeatMode]);$('#repeat').innerHTML=state.repeatMode==='one'?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a8 8 0 1 1 2 9"/><path d="M4 4v4h4M12 7v6l4 2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a8 8 0 1 1 2 9"/><path d="M4 4v4h4"/></svg>';
+  $('#shuffle').classList.toggle('active',state.shuffle);$('#shuffle').setAttribute('aria-pressed',String(state.shuffle));$('#shuffle').setAttribute('aria-label',state.shuffle?'Выключить перемешивание':'Включить перемешивание');$('#shuffle').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h2.5a4 4 0 0 1 3.2 1.6l6.6 9.8A4 4 0 0 0 18.5 18H21m-4-4 4 4-4 4M3 19h2.5a4 4 0 0 0 3.2-1.6l2-3M14 7l1.3-1.4A4 4 0 0 1 18.5 5H21m-4-4 4 4-4 4"/></svg>';
   $('#play').setAttribute('aria-label', audio.getStatus().playing ? 'Пауза' : 'Воспроизвести');
+  renderLyricsPanel();updateMediaSession(current);
 }
 function setPage(page) {
   if (!['home','library','playlists','favorites','queue','history','settings','profile'].includes(page)) return;
@@ -366,7 +380,7 @@ async function restoreDesktopLibrary() {
 
 async function addFiles(fileList) {
   if (desktopRuntime && !libraryReady) await libraryRestorePromise;
-  const selected = [...(fileList || [])].filter(file => file instanceof File && /\.(mp3|wav|flac|ogg|oga|m4a|aac)$/i.test(file.name));
+  const selected = [...(fileList || [])].filter(file => file instanceof File && supportsAudioFile(file));
   if (selected.length > 500) { toast('За один импорт можно добавить не более 500 файлов.'); return; }
   if (!selected.length) { toast('Не найдено поддерживаемых аудиофайлов.'); return; }
   const files=selected.filter(file=>file.size>0 && file.size<=512*1024*1024);
@@ -385,7 +399,7 @@ async function addFiles(fileList) {
     catch (error) { toast(error?.message || 'Не удалось проверить аудиофайл.'); return; }
     if (existing.has(id)) continue;
     const title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g,' ').trim() || file.name;
-    const track = { id, name: file.name, title, artist: 'Неизвестный исполнитель', album: 'Локальный файл', size: file.size, lastModified: file.lastModified, duration: 0, addedAt: Date.now() };
+    const track = { id, name: file.name, title, artist: 'Неизвестный исполнитель', album: 'Локальный файл', lyrics: '', size: file.size, lastModified: file.lastModified, duration: 0, addedAt: Date.now() };
     if (!desktopRuntime) track.file = file.slice(0, file.size, file.type);
     if (desktopRuntime) {
       try { await libraryStore.put(track, file.slice(0, file.size, file.type)); }
@@ -397,13 +411,16 @@ async function addFiles(fileList) {
   render(); toast(added ? (desktopRuntime ? `Добавлено файлов: ${added}. Они сохранены в медиатеке.` : `Добавлено файлов: ${added}. Они остаются в этой вкладке.`) : 'Выбранные файлы уже добавлены.');
 }
 function getPlaybackQueue() {
-  if(state.page==='queue')return state.playbackQueue.filter(id=>state.tracks.some(track=>track.id===id));
-  if(state.page==='history')return visibleTracks().map(track=>track.id);
-  return buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:state.tracks,favorites:state.favorites,search:state.search});
+  const playable=state.tracks.filter(track=>!track.externalUrl);
+  if(state.page==='queue')return state.playbackQueue.filter(id=>playable.some(track=>track.id===id));
+  if(state.page==='history')return visibleTracks().filter(track=>!track.externalUrl).map(track=>track.id);
+  return buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:playable,favorites:state.favorites.filter(id=>playable.some(track=>track.id===id)),search:state.search});
 }
 
 async function playTrack(id, queueIds = null) {
-  const available=new Set(state.tracks.map(track=>track.id));
+  const selected=state.tracks.find(track=>track.id===id);
+  if(selected?.externalUrl){openMusicSource(selected.externalUrl);return;}
+  const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const requested=Array.isArray(queueIds)?queueIds:getPlaybackQueue();
   const unique=[...new Set(requested.filter(trackId=>available.has(trackId)))];
   if(!unique.includes(id))unique.unshift(id);
@@ -417,11 +434,12 @@ async function playTrack(id, queueIds = null) {
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
   const requestId=++state.playRequestId;
   try {
-    const playable=desktopRuntime?{...track,file:await libraryStore.getFile(id)}:track;
-    if(desktopRuntime&&!(playable.file instanceof Blob))throw new Error('Аудиофайл отсутствует в медиатеке. Импортируй его повторно.');
+    const playable=desktopRuntime&&!track.url?{...track,file:await libraryStore.getFile(id)}:track;
+    if(desktopRuntime&&!track.url&&!(playable.file instanceof Blob))throw new Error('Аудиофайл отсутствует в медиатеке. Импортируй его повторно.');
+    if(track.externalUrl)throw new Error('Это сохранённая ссылка на музыкальный сайт. Открой источник для прослушивания.');
     await audio.play(playable);
     if(requestId!==state.playRequestId)return;
-    state.currentId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
+    state.currentId=id;state.lyricsTrackId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
   }catch(error){
     if(requestId!==state.playRequestId)return;
     audio.stop();state.currentId=null;render();toast('Не удалось воспроизвести "'+track.title+'": '+(error.message||'проверь формат файла'));
@@ -429,7 +447,7 @@ async function playTrack(id, queueIds = null) {
 }
 function stopPlayback(){state.playRequestId+=1;audio.stop();state.currentId=null;render();}
 function advance(direction) {
-  const available=new Set(state.tracks.map(track=>track.id));
+  const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const queue=state.playbackQueue.filter(id=>available.has(id));
   if(!queue.length){const initial=getPlaybackQueue();if(!initial.length)return;playTrack(initial[direction>0?0:initial.length-1],initial);return;}
   const next=getNextQueueIndex(queue,state.currentId,direction,state.repeatMode);
@@ -454,7 +472,9 @@ function toggleShuffle(){
   state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast(state.shuffle?'Перемешивание включено.':'Исходный порядок восстановлен.');
 }
 function queueTrackNext(id){
-  if(!state.tracks.some(track=>track.id===id))return;
+  const selected=state.tracks.find(track=>track.id===id);
+  if(!selected)return;
+  if(selected.externalUrl){toast('Внешние музыкальные сайты сохраняются как закладки и не добавляются в очередь.');return;}
   if(id===state.currentId){toast('Этот трек уже воспроизводится.');return;}
   const queue=state.playbackQueue.filter(trackId=>state.tracks.some(track=>track.id===trackId));
   if(state.currentId&&!queue.includes(state.currentId))queue.unshift(state.currentId);
@@ -547,16 +567,141 @@ async function deleteLibraryTrack(id) {
 
 function editTrack(id){
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
-  $('#track-id').value=track.id;$('#track-title').value=track.title||'';$('#track-artist').value=track.artist||'';$('#track-album').value=track.album||'';$('#track-error').textContent='';$('#track-dialog').showModal();
+  $('#track-id').value=track.id;$('#track-title').value=track.title||'';$('#track-artist').value=track.artist||'';$('#track-album').value=track.album||'';$('#track-lyrics').value=track.lyrics||'';$('#lyrics-file').value='';$('#track-error').textContent='';$('#track-dialog').showModal();
 }
 async function saveTrackMetadata(event){
   event.preventDefault();const id=$('#track-id').value,track=state.tracks.find(item=>item.id===id);
   if(!track){$('#track-error').textContent='Трек больше не найден в медиатеке.';return;}
-  const title=$('#track-title').value.trim().slice(0,160),artist=$('#track-artist').value.trim().slice(0,120),album=$('#track-album').value.trim().slice(0,120);
+  const title=$('#track-title').value.trim().slice(0,160),artist=$('#track-artist').value.trim().slice(0,120),album=$('#track-album').value.trim().slice(0,120),lyrics=normalizeLyrics($('#track-lyrics').value);
   if(!title){$('#track-error').textContent='Укажи название композиции.';return;}
-  const previous={title:track.title,artist:track.artist,album:track.album};Object.assign(track,{title,artist,album});
+  const previous={title:track.title,artist:track.artist,album:track.album,lyrics:track.lyrics||''};Object.assign(track,{title,artist,album,lyrics});
   try{if(desktopRuntime)await libraryStore.updateMetadata(track);$('#track-dialog').close();render();toast(desktopRuntime?'Метаданные сохранены в локальной медиатеке.':'Метаданные изменены до закрытия вкладки.');}
   catch(error){Object.assign(track,previous);$('#track-error').textContent=error.message||'Не удалось сохранить метаданные.';}
+}
+
+function openLinkDialog(){
+  $('#link-url').value='';$('#link-title').value='';$('#link-artist').value='';
+  $('#link-result').textContent='Вставь HTTPS-ссылку на аудиофайл или музыкальный сайт.';
+  $('#link-dialog').showModal();
+}
+function previewMusicLink(){
+  const result=classifyMusicUrl($('#link-url').value);
+  const node=$('#link-result');
+  if(!node)return;
+  node.textContent=result.ok?(result.kind==='direct-audio'?'Распознана прямая аудиоссылка ('+result.extension.toUpperCase()+'). Можно добавить поток в библиотеку.':'Распознан музыкальный сайт '+result.hostname+'. Сохраним ссылку-закладку; скачивание не выполняется.'):(result.reason||'Введите ссылку.');
+}
+async function addMusicLink(){
+  const classified=classifyMusicUrl($('#link-url').value);
+  if(!classified.ok){$('#link-result').textContent=classified.reason;return;}
+  if(state.tracks.length>=5000){toast('Достигнут лимит 5000 записей.');return;}
+  const title=$('#link-title').value.trim().slice(0,160)||titleFromMusicUrl(classified.url);
+  const artist=$('#link-artist').value.trim().slice(0,120)||'Неизвестный исполнитель';
+  const id='link-'+uid();
+  const track={id,name:title,title,artist,album:'Добавлено по ссылке',lyrics:'',size:0,lastModified:0,duration:0,addedAt:Date.now()};
+  if(classified.kind==='direct-audio')track.url=classified.url;
+  else track.externalUrl=classified.url;
+  try{
+    if(desktopRuntime)await libraryStore.putLink(track);
+    state.tracks.push(track);
+    $('#link-dialog').close();render();
+    toast(classified.kind==='direct-audio'?'Ссылка добавлена в медиатеку. Доступность потока зависит от сайта.':'Музыкальная ссылка сохранена в медиатеке как закладка.');
+  }catch(error){$('#link-result').textContent='Не удалось сохранить ссылку: '+(error.message||error);}
+}
+function showPlusDemo(){
+  const query=$('#plus-demo-query')?.value.trim();
+  const node=$('#plus-demo-result');
+  if(!node)return;
+  node.textContent=query?('QWEMU PLUS — DEMO: демонстрационный поиск по запросу «'+query.slice(0,120)+'». Реальный каталог не подключён; добавляй музыку через проверенную ссылку или локальный файл.'):'Введите запрос, чтобы показать демонстрационный экран поиска.';
+}
+function openMusicSource(url){
+  const classified=classifyMusicUrl(url);
+  if(!classified.ok||classified.kind!=='music-site'){toast('Ссылка не прошла проверку.');return;}
+  const opened=window.open(classified.url,'_blank','noopener,noreferrer');
+  if(!opened){navigator.clipboard?.writeText(classified.url).then(()=>toast('Ссылка скопирована в буфер обмена.')).catch(()=>toast('Открытие заблокировано; ссылка сохранена в записи.'));}
+}
+async function importLyricsFile(file){
+  if(!(file instanceof File)||file.size>100000){toast('Текст песни должен быть TXT/LRC и не превышать 100 КБ.');return;}
+  try{$('#track-lyrics').value=normalizeLyrics(await file.text());toast('Текст загружен в редактор. Нажми «Сохранить» для прикрепления.');}
+  catch(error){toast('Не удалось прочитать текст: '+(error.message||error));}
+}
+function renderLyricsPanel(){
+  const panel=$('#lyrics-panel');if(!panel)return;
+  panel.hidden=!state.lyricsOpen;
+  if(!state.lyricsOpen)return;
+  const track=state.tracks.find(item=>item.id===(state.lyricsTrackId||state.currentId));
+  $('#lyrics-title').textContent=track?.title||'Текст песни';
+  $('#lyrics-artist').textContent=track?.artist||'';
+  const body=$('#lyrics-content');
+  if(!track?.lyrics){body.innerHTML='<div class="lyrics-empty">Текст ещё не прикреплён.<br><button class="secondary-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track?.id||'')+'">Добавить текст</button></div>';return;}
+  state.activeLyric=-1;
+  const parsed=parseLyrics(track.lyrics);
+  if(!parsed.lines.length){body.textContent='Текст пуст.';return;}
+  body.innerHTML=parsed.lines.map((line,index)=>{
+    const seconds=line.time===null?'':' data-seconds="'+line.time+'"';
+    const clickable=line.time===null?'':' data-action="seek-lyrics"';
+    return '<div class="lyric-line '+(index===state.activeLyric?'active':'')+'" data-lyric-index="'+index+'"><button type="button"'+clickable+seconds+'>'+escapeHtml(line.text)+'</button></div>';
+  }).join('');
+  syncLyricsHighlight(state.lyricsTrackId===state.currentId?audio.getStatus().position:0);
+}
+function syncLyricsHighlight(position){
+  if(!state.lyricsOpen)return;
+  const track=state.tracks.find(item=>item.id===(state.lyricsTrackId||state.currentId));
+  const parsed=parseLyrics(track?.lyrics||'');
+  if(!parsed.synced)return;
+  const active=activeLyricIndex(parsed.lines,position);
+  if(active===state.activeLyric)return;
+  state.activeLyric=active;
+  const content=$('#lyrics-content');
+  content?.querySelectorAll('[data-lyric-index]').forEach(node=>node.classList.toggle('active',Number(node.dataset.lyricIndex)===active));
+  const current=content?.querySelector('[data-lyric-index="'+active+'"]');
+  if(current&&typeof current.scrollIntoView==='function')current.scrollIntoView({block:'center',behavior:state.settings.reducedMotion?'auto':'smooth'});
+}
+function updateMediaSession(track){
+  if(!('mediaSession' in navigator))return;
+  try{
+    if(track&&'MediaMetadata' in window)navigator.mediaSession.metadata=new MediaMetadata({title:track.title||'QWEMU MUSIC',artist:track.artist||'',album:track.album||'QWEMU MUSIC',artwork:[{src:'./assets/logo.svg',sizes:'512x512',type:'image/svg+xml'}]});
+    navigator.mediaSession.playbackState=audio.getStatus().playing?'playing':'paused';
+    const status=audio.getStatus();
+    if(status.duration>0&&Number.isFinite(status.position))navigator.mediaSession.setPositionState({duration:status.duration,position:Math.min(status.duration,status.position),playbackRate:$('#audio').playbackRate||1});
+  }catch{}
+}
+function installMediaSessionHandlers(){
+  if(!('mediaSession' in navigator))return;
+  const handlers={
+    play:()=>{if(state.currentId)audio.resume().catch(error=>toast(error.message));else{const queue=getPlaybackQueue();if(queue.length)playTrack(queue[0],queue);}},
+    pause:()=>audio.pause(),
+    nexttrack:()=>advance(1),
+    previoustrack:()=>previousTrack(),
+    seekto:details=>{if(Number.isFinite(details.seekTime))audio.seek(details.seekTime);},
+    seekbackward:details=>audio.seek(Math.max(0,audio.getStatus().position-(details.seekOffset||10))),
+    seekforward:details=>audio.seek(Math.min(audio.getStatus().duration,audio.getStatus().position+(details.seekOffset||10)))
+  };
+  for(const [action,handler] of Object.entries(handlers))try{navigator.mediaSession.setActionHandler(action,handler);}catch{}
+}
+function compareVersions(left,right){
+  const a=String(left).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
+  const b=String(right).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
+  for(let i=0;i<Math.max(a.length,b.length);i++){const diff=(a[i]||0)-(b[i]||0);if(diff)return Math.sign(diff);}
+  return 0;
+}
+async function checkForUpdates(){
+  const status=$('#update-status');if(!status)return;
+  status.textContent='Проверяем последнюю опубликованную версию…';
+  try{
+    let latest=null,source='GitHub Releases';
+    const release=await fetch('https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest',{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
+    if(release.ok){const data=await release.json();latest=String(data.tag_name||'').replace(/^v/i,'');}
+    else if(release.status===404){
+      source='main';
+      const response=await fetch('https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/package.json',{cache:'no-store'});
+      if(!response.ok)throw new Error('GitHub вернул '+response.status);
+      latest=String((await response.json()).version||'');
+    }else throw new Error('GitHub API: '+release.status);
+    if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
+    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,'1.7.0')===0?('Установлена актуальная версия 1.7.0 (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена 1.7.0 — она новее main; страницу релизов можно проверить вручную.');
+    status.textContent=state.updateStatus;
+    if(compareVersions(latest,'1.7.0')>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
+  }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
 }
 function exportPlaylist(id){
   const playlist=state.playlists.find(item=>item.id===id);if(!playlist)return;
@@ -620,6 +765,18 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]'); if (!action) return;
   const { action: name, id, key } = action.dataset;
   if (name === 'play-track') await playTrack(id);
+  else if (name === 'open-link-dialog') openLinkDialog();
+  else if (name === 'close-link') $('#link-dialog').close();
+  else if (name === 'plus-demo-link') { const q=$('#plus-link-query').value.trim();$('#plus-link-result').textContent=q?'QWEMU PLUS DEMO: демонстрационный запрос «'+q.slice(0,120)+'»; реальный каталог не подключён.':'Введите запрос.'; }
+  else if (name === 'link-preview') previewMusicLink();
+  else if (name === 'add-link') await addMusicLink();
+  else if (name === 'plus-demo') showPlusDemo();
+  else if (name === 'check-updates') await checkForUpdates();
+  else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel(); }
+  else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.lyricsTrackId=id;state.lyricsOpen=true;renderLyricsPanel();} }
+  else if (name === 'lyrics-close') { state.lyricsOpen=false;state.lyricsTrackId=null;state.activeLyric=-1;renderLyricsPanel(); }
+  else if (name === 'seek-lyrics') { const seconds=Number(action.dataset.seconds);if(Number.isFinite(seconds))audio.seek(seconds); }
+  else if (name === 'open-source') { const track=state.tracks.find(item=>item.id===id);if(track?.externalUrl)openMusicSource(track.externalUrl); }
   else if (name === 'queue-next') queueTrackNext(id);
   else if (name === 'queue-remove') removeQueuedTrack(id);
   else if (name === 'edit-track') editTrack(id);
@@ -660,13 +817,17 @@ document.addEventListener('click', async event => {
 document.addEventListener('change', event => {
   if (event.target.id === 'm3u-import') { const file=event.target.files?.[0]; if(file)importPlaylistFile(file); event.target.value=''; return; }
   if (event.target.id === 'sort-select') { state.sortMode=Object.hasOwn(TRACK_SORT_MODES,event.target.value)?event.target.value:'added-desc';writeLocal('sort-mode',state.sortMode);render();return; }
+  if (event.target.id === 'lyrics-file') { importLyricsFile(event.target.files?.[0]); event.target.value=''; return; }
   if (event.target.matches('input[type="file"]')) { addFiles(event.target.files); event.target.value = ''; }
   if (event.target.id === 'theme-select') { state.settingsRevision += 1; state.settings.theme = validThemes.includes(event.target.value)?event.target.value:'dark-red'; applyTheme(); saveLocal(); persistCloud('settings', state.settings); }
   if (event.target.id === 'volume-setting') { state.settingsRevision += 1; state.settings.volume = Number(event.target.value); $('#volume').value = String(state.settings.volume); audio.setVolume(state.settings.volume); saveLocal(); persistCloud('settings', state.settings); }
   if (event.target.id === 'reduced-motion-setting') { state.settingsRevision += 1; state.settings.reducedMotion = event.target.checked; applyTheme(); saveLocal(); persistCloud('settings', state.settings); }
+  if (event.target.id === 'background-playback-setting') { state.settingsRevision += 1; state.settings.backgroundPlayback = event.target.checked; saveLocal(); persistCloud('settings', state.settings); toast(event.target.checked?'Фоновое воспроизведение включено.':'При скрытии окна музыка будет ставиться на паузу.'); }
 });
 $('#auth-form').addEventListener('submit', submitAuth);
 $('#track-form').addEventListener('submit', saveTrackMetadata);
+$('#link-form').addEventListener('submit',async event=>{event.preventDefault();await addMusicLink();});
+$('#link-url').addEventListener('input',previewMusicLink);
 document.addEventListener('submit', async event => {
   if(event.target.id!=='profile-edit-form')return;event.preventDefault();
   const form=new FormData(event.target);try{state.user=await auth.updateProfile({displayName:String(form.get('displayName')||'').trim(),email:String(form.get('email')||'').trim()});render();toast('Профиль сохранён.');}
@@ -678,6 +839,7 @@ $('#account-button').addEventListener('click', () => {
 });
 $('#search').addEventListener('input', event => { state.search = event.target.value; render(); const input=$('#search'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); });
 $('#stop').addEventListener('click', stopPlayback);
+$('#lyrics-toggle').addEventListener('click',()=>{state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel();});
 $('#repeat').addEventListener('click', toggleRepeat);
 $('#shuffle').addEventListener('click', toggleShuffle);
 $('#play').addEventListener('click', async () => { if (!state.currentId) { const queue=getPlaybackQueue(); if (queue.length) await playTrack(queue[0],queue); return; } if (audio.getStatus().playing) audio.pause(); else await audio.resume().catch(error=>toast(error.message)); render(); });
@@ -686,8 +848,8 @@ $('#seek').addEventListener('input', event => { const duration=audio.getStatus()
 $('#volume').value=String(state.settings.volume); audio.setVolume($('#volume').value);
 $('#volume').addEventListener('input', event => { audio.setVolume(event.target.value); state.settings.volume=Number(event.target.value); state.settingsRevision += 1; saveLocal(); });
 $('#volume').addEventListener('change', () => persistCloud('settings', state.settings));
-$('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('#audio').muted=muted; $('#mute').textContent=muted?'×':'◖))'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
-audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration); });
+$('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('#audio').muted=muted; $('#mute').innerHTML=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM17 9l4 6m0-6-4 6"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12"/></svg>'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
+audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration);syncLyricsHighlight(status.position);updateMediaSession(state.tracks.find(track=>track.id===state.currentId)); });
 audio.on('loadedmetadata', () => { const track=state.tracks.find(item=>item.id===state.currentId); if(track)track.duration=audio.getStatus().duration; render(); });
 audio.on('play', render); audio.on('pause', render);
 audio.on('ended', () => { if (state.repeatMode !== 'one') advance(1); });
@@ -711,6 +873,11 @@ document.addEventListener('keydown', event => {
     else if(state.currentId){const status=audio.getStatus();audio.seek(status.position+(event.key==='ArrowLeft'?-5:5));}
   }
 });
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&!state.settings.backgroundPlayback){audio.pause();render();}
+  if(!document.hidden&&audio.getStatus().playing)document.dispatchEvent(new Event('qwemu-foreground'));
+});
+installMediaSessionHandlers();
 window.addEventListener('pagehide', () => { state.playRequestId += 1; audio.destroy(); }, { once: true });
 
 applyTheme(); render();

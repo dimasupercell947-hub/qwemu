@@ -86,6 +86,7 @@ test('LibraryStore persists metadata and audio, and deletes both atomically', as
       title: 'Sample',
       artist: 'QWEMU',
       album: 'Tests',
+      lyrics: '[00:01]Line one',
       size: 4,
       lastModified: 123,
       duration: 0
@@ -101,12 +102,21 @@ test('LibraryStore persists metadata and audio, and deletes both atomically', as
     assert.equal(rows[0].title, 'Edited title');
     assert.equal(rows[0].artist, 'New artist');
     assert.equal(rows[0].album, 'New album');
+    assert.equal(rows[0].lyrics, '[00:01]Line one');
 
     const restored = await store.getFile(track.id);
     assert.ok(restored instanceof Blob);
     assert.equal(await restored.text(), 'test');
 
-    await store.remove(track.id);
+    const direct = {id:'direct-1',name:'remote.opus',title:'Remote stream',artist:'QWEMU',album:'Link',url:'https://cdn.example.com/remote.opus',addedAt:Date.now()};
+    const bookmark = {id:'bookmark-1',name:'Spotify link',title:'External',artist:'QWEMU',album:'Link',externalUrl:'https://open.spotify.com/track/demo',addedAt:Date.now()};
+    await store.putLink(direct);await store.putLink(bookmark);
+    const linked=await store.list();
+    assert.ok(linked.some(item=>item.id==='direct-1'&&item.url===direct.url));
+    assert.ok(linked.some(item=>item.id==='bookmark-1'&&item.externalUrl===bookmark.externalUrl));
+    await assert.rejects(store.putLink({...direct,url:'http://insecure.example.com/audio.mp3'}),TypeError);
+
+    await store.remove(track.id);await store.remove(direct.id);await store.remove(bookmark.id);
     assert.deepEqual(await store.list(), []);
     assert.equal(await store.getFile(track.id), null);
     await assert.rejects(store.remove(''), TypeError);
