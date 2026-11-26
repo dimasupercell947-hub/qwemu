@@ -781,10 +781,11 @@ function openMusicSource(url) {
   }
 
   try {
-    const opened = window.open(classified.url, '_blank');
+    const opened = window.open('about:blank', '_blank');
     if (opened) {
-      // Remove the opener reference immediately after creating the new window.
-      try { opened.opener = null; } catch {}
+      // Detach the new window before navigating to the third-party service.
+      opened.opener = null;
+      opened.location.href = classified.url;
       toast('Открываем ' + classified.serviceName + '.');
       return;
     }
