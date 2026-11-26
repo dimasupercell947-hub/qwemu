@@ -573,6 +573,130 @@ async function saveTrackMetadata(event){
   try{if(desktopRuntime)await libraryStore.updateMetadata(track);$('#track-dialog').close();render();toast(desktopRuntime?'Метаданные сохранены в локальной медиатеке.':'Метаданные изменены до закрытия вкладки.');}
   catch(error){Object.assign(track,previous);$('#track-error').textContent=error.message||'Не удалось сохранить метаданные.';}
 }
+
+function openLinkDialog(){
+  $('#link-url').value='';$('#link-title').value='';$('#link-artist').value='';
+  $('#link-result').textContent='Вставь HTTPS-ссылку на аудиофайл или музыкальный сайт.';
+  $('#link-dialog').showModal();
+}
+function previewMusicLink(){
+  const result=classifyMusicUrl($('#link-url').value);
+  const node=$('#link-result');
+  if(!node)return;
+  node.textContent=result.ok?(result.kind==='direct-audio'?'Распознана прямая аудиоссылка ('+result.extension.toUpperCase()+'). Можно добавить поток в библиотеку.':'Распознан музыкальный сайт '+result.hostname+'. Сохраним ссылку-закладку; скачивание не выполняется.'):(result.reason||'Введите ссылку.');
+}
+async function addMusicLink(){
+  const classified=classifyMusicUrl($('#link-url').value);
+  if(!classified.ok){$('#link-result').textContent=classified.reason;return;}
+  if(state.tracks.length>=5000){toast('Достигнут лимит 5000 записей.');return;}
+  const title=$('#link-title').value.trim().slice(0,160)||titleFromMusicUrl(classified.url);
+  const artist=$('#link-artist').value.trim().slice(0,120)||'Неизвестный исполнитель';
+  const id='link-'+uid();
+  const track={id,name:title,title,artist,album:'Добавлено по ссылке',lyrics:'',size:0,lastModified:0,duration:0,addedAt:Date.now()};
+  if(classified.kind==='direct-audio')track.url=classified.url;
+  else track.externalUrl=classified.url;
+  try{
+    if(desktopRuntime)await libraryStore.putLink(track);
+    state.tracks.push(track);
+    $('#link-dialog').close();render();
+    toast(classified.kind==='direct-audio'?'Ссылка добавлена в медиатеку. Доступность потока зависит от сайта.':'Музыкальная ссылка сохранена в медиатеке как закладка.');
+  }catch(error){$('#link-result').textContent='Не удалось сохранить ссылку: '+(error.message||error);}
+}
+function showPlusDemo(){
+  const query=$('#plus-demo-query')?.value.trim();
+  const node=$('#plus-demo-result');
+  if(!node)return;
+  node.textContent=query?('QWEMU PLUS — DEMO: демонстрационный поиск по запросу «'+query.slice(0,120)+'». Реальный каталог не подключён; добавляй музыку через проверенную ссылку или локальный файл.'):'Введите запрос, чтобы показать демонстрационный экран поиска.';
+}
+function openMusicSource(url){
+  const classified=classifyMusicUrl(url);
+  if(!classified.ok||classified.kind!=='music-site'){toast('Ссылка не прошла проверку.');return;}
+  const opened=window.open(classified.url,'_blank','noopener,noreferrer');
+  if(!opened)toast('Браузер заблокировал открытие. Ссылка сохранена в записи медиатеки.');
+}
+async function importLyricsFile(file){
+  if(!(file instanceof File)||file.size>100000){toast('Текст песни должен быть TXT/LRC и не превышать 100 КБ.');return;}
+  try{$('#track-lyrics').value=normalizeLyrics(await file.text());toast('Текст загружен в редактор. Нажми «Сохранить» для прикрепления.');}
+  catch(error){toast('Не удалось прочитать текст: '+(error.message||error));}
+}
+function renderLyricsPanel(){
+  const panel=$('#lyrics-panel');if(!panel)return;
+  panel.hidden=!state.lyricsOpen;
+  if(!state.lyricsOpen)return;
+  const track=state.tracks.find(item=>item.id===(state.lyricsTrackId||state.currentId));
+  $('#lyrics-title').textContent=track?.title||'Текст песни';
+  $('#lyrics-artist').textContent=track?.artist||'';
+  const body=$('#lyrics-content');
+  if(!track?.lyrics){body.innerHTML='<div class="lyrics-empty">Текст ещё не прикреплён.<br><button class="secondary-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track?.id||'')+'">Добавить текст</button></div>';return;}
+  const parsed=parseLyrics(track.lyrics);
+  if(!parsed.lines.length){body.textContent='Текст пуст.';return;}
+  body.innerHTML=parsed.lines.map((line,index)=>{
+    const seconds=line.time===null?'':' data-seconds="'+line.time+'"';
+    const clickable=line.time===null?'':' data-action="seek-lyrics"';
+    return '<div class="lyric-line '+(index===state.activeLyric?'active':'')+'" data-lyric-index="'+index+'"><button type="button"'+clickable+seconds+'>'+escapeHtml(line.text)+'</button></div>';
+  }).join('');
+  syncLyricsHighlight(audio.getStatus().position);
+}
+function syncLyricsHighlight(position){
+  if(!state.lyricsOpen)return;
+  const track=state.tracks.find(item=>item.id===(state.lyricsTrackId||state.currentId));
+  const parsed=parseLyrics(track?.lyrics||'');
+  if(!parsed.synced)return;
+  const active=activeLyricIndex(parsed.lines,position);
+  if(active===state.activeLyric)return;
+  state.activeLyric=active;
+  const content=$('#lyrics-content');
+  content?.querySelectorAll('[data-lyric-index]').forEach(node=>node.classList.toggle('active',Number(node.dataset.lyricIndex)===active));
+  const current=content?.querySelector('[data-lyric-index="'+active+'"]');
+  if(current&&typeof current.scrollIntoView==='function')current.scrollIntoView({block:'center',behavior:state.settings.reducedMotion?'auto':'smooth'});
+}
+function updateMediaSession(track){
+  if(!('mediaSession' in navigator))return;
+  try{
+    if(track&&'MediaMetadata' in window)navigator.mediaSession.metadata=new MediaMetadata({title:track.title||'QWEMU MUSIC',artist:track.artist||'',album:track.album||'QWEMU MUSIC',artwork:[{src:'./assets/logo.svg',sizes:'512x512',type:'image/svg+xml'}]});
+    navigator.mediaSession.playbackState=audio.getStatus().playing?'playing':'paused';
+    const status=audio.getStatus();
+    if(status.duration>0&&Number.isFinite(status.position))navigator.mediaSession.setPositionState({duration:status.duration,position:Math.min(status.duration,status.position),playbackRate:$('#audio').playbackRate||1});
+  }catch{}
+}
+function installMediaSessionHandlers(){
+  if(!('mediaSession' in navigator))return;
+  const handlers={
+    play:()=>{if(state.currentId)audio.resume().catch(error=>toast(error.message));else{const queue=getPlaybackQueue();if(queue.length)playTrack(queue[0],queue);}},
+    pause:()=>audio.pause(),
+    nexttrack:()=>advance(1),
+    previoustrack:()=>previousTrack(),
+    seekto:details=>{if(Number.isFinite(details.seekTime))audio.seek(details.seekTime);},
+    seekbackward:details=>audio.seek(Math.max(0,audio.getStatus().position-(details.seekOffset||10))),
+    seekforward:details=>audio.seek(Math.min(audio.getStatus().duration,audio.getStatus().position+(details.seekOffset||10)))
+  };
+  for(const [action,handler] of Object.entries(handlers))try{navigator.mediaSession.setActionHandler(action,handler);}catch{}
+}
+function compareVersions(left,right){
+  const a=String(left).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
+  const b=String(right).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
+  for(let i=0;i<Math.max(a.length,b.length);i++){const diff=(a[i]||0)-(b[i]||0);if(diff)return Math.sign(diff);}
+  return 0;
+}
+async function checkForUpdates(){
+  const status=$('#update-status');if(!status)return;
+  status.textContent='Проверяем последнюю опубликованную версию…';
+  try{
+    let latest=null,source='GitHub Releases';
+    const release=await fetch('https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest',{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
+    if(release.ok){const data=await release.json();latest=String(data.tag_name||'').replace(/^v/i,'');}
+    else if(release.status===404){
+      source='main';
+      const response=await fetch('https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/package.json',{cache:'no-store'});
+      if(!response.ok)throw new Error('GitHub вернул '+response.status);
+      latest=String((await response.json()).version||'');
+    }else throw new Error('GitHub API: '+release.status);
+    if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
+    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):('Установлена актуальная версия 1.7.0 (проверено по '+source+').');
+    status.textContent=state.updateStatus;
+    if(compareVersions(latest,'1.7.0')>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
+  }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
+}
 function exportPlaylist(id){
   const playlist=state.playlists.find(item=>item.id===id);if(!playlist)return;
   try{
