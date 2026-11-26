@@ -13,6 +13,9 @@ const required = [
   'public/assets/library-store.js',
   'public/assets/desktop-bridge.js',
   'public/assets/playback-queue.js',
+  'public/assets/history-state.js',
+  'public/assets/track-sort.js',
+  'public/assets/playlist-io.js',
   'public/assets/audio-adapter.js',
   'public/assets/storage-adapter.js',
   'public/assets/eq.js',
@@ -37,7 +40,7 @@ for (const path of required) {
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.5.1');
+assert.equal(config.version, '1.6.0');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
@@ -61,7 +64,13 @@ for (const feature of [
   'libraryStore.remove',
   'deleteLibraryTrack',
   'buildPlaybackQueue',
-  'state.playbackQueue'
+  'state.playbackQueue',
+  'function queueTrackNext',
+  'function toggleShuffle',
+  'function clearHistory',
+  'parsePlaylistM3u',
+  'recordPlay',
+  'sortTracks'
 ]) {
   assert.ok(main.includes(feature), 'Missing main feature: ' + feature);
 }
@@ -92,6 +101,9 @@ assert.ok(css.includes('grid-template-columns:minmax(160px,1fr) minmax(270px,1.4
 assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should be represented in the preset selector');
 
 assert.ok(read('public/assets/library-store.js').includes('indexedDB.open'));
+assert.ok(read('public/assets/library-store.js').includes('updateMetadata'));
+assert.ok(read('public/index.html').includes('id="shuffle"'));
+assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
 
 const icon = readFileSync(join(root, 'src-tauri/icons/icon.ico'));
@@ -116,5 +128,5 @@ assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "2" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
 
-assert.equal(JSON.parse(read('package.json')).version, '1.5.1');
-console.log('QWEMU Desktop smoke passed: ' + required.length + ' required files, ten-band EQ, headroom compensation, visualizer, CSP, Tauri configuration, ICO and build scripts.');
+assert.equal(JSON.parse(read('package.json')).version, '1.6.0');
+console.log('QWEMU Desktop 1.6.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
