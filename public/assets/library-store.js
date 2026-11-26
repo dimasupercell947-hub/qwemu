@@ -75,6 +75,39 @@ export class LibraryStore {
     });
   }
 
+  async updateMetadata(track) {
+    if (!track || typeof track.id !== "string" || !track.id) {
+      throw new TypeError("Для обновления метаданных нужен идентификатор трека.");
+    }
+    const metadata = {
+      title: String(track.title || "").trim().slice(0, 160),
+      artist: String(track.artist || "").trim().slice(0, 120),
+      album: String(track.album || "").trim().slice(0, 120)
+    };
+    if (!metadata.title) throw new TypeError("Название композиции не может быть пустым.");
+    const db = await this.open();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(TRACKS, "readwrite");
+      const objectStore = tx.objectStore(TRACKS);
+      const request = objectStore.get(track.id);
+      request.onsuccess = () => {
+        if (!request.result) {
+          try { tx.abort(); } catch {}
+          reject(new Error("Трек больше не существует в медиатеке."));
+          return;
+        }
+        objectStore.put({ ...request.result, ...metadata });
+      };
+      request.onerror = () => {
+        try { tx.abort(); } catch {}
+        reject(request.error || new Error("Не удалось прочитать метаданные трека."));
+      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error("Не удалось обновить метаданные."));
+      tx.onabort = () => reject(tx.error || new Error("Обновление метаданных отменено."));
+    });
+  }
+
   async remove(id) {
     if (typeof id !== 'string' || !id) throw new TypeError('Для удаления нужен идентификатор трека.');
     const db = await this.open();
