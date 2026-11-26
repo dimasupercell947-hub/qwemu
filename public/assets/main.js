@@ -9,6 +9,9 @@ import { buildPlaybackQueue, getNextQueueIndex, shuffleQueue } from './playback-
 import { HISTORY_LIMIT, normalizePlayHistory, recordPlay, resolveHistoryTracks } from './history-state.js';
 import { TRACK_SORT_MODES, sortTracks } from './track-sort.js';
 import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
+import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
+import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
+import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
@@ -29,7 +32,7 @@ const validThemes = ['dark-red','orange-night','midnight','pure-black','light'];
 function normalizeSettings(value) {
   const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{};
   const volume=Number(source.volume);
-  return { theme: validThemes.includes(source.theme)?source.theme:'dark-red', volume:Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0.8, reducedMotion:source.reducedMotion===true };
+  return { theme: validThemes.includes(source.theme)?source.theme:'dark-red', volume:Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0.8, reducedMotion:source.reducedMotion===true, backgroundPlayback:source.backgroundPlayback!==false };
 }
 const state = {
   page: 'home', tracks: [], favorites: Array.isArray(savedFavorites)?savedFavorites.filter(value=>typeof value==='string').slice(0,5000):[],
@@ -37,6 +40,7 @@ const state = {
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
   currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
+  lyricsOpen: false, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -145,14 +149,17 @@ function renderTracks(list) {
     const empty=state.page==='queue'?['Очередь пуста','Запусти трек или добавь композицию следующей.']:
       state.page==='history'?['История пока пуста','Начни воспроизведение — последние 100 композиций появятся здесь.']:
       ['Здесь пока пусто',desktopRuntime?'Добавь аудиофайлы. Они сохранятся в медиатеке после перезапуска.':'Добавь аудиофайлы. Они доступны до закрытия вкладки.'];
-    return '<div class="empty-state"><b>'+empty[0]+'</b>'+empty[1]+'<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div>';
+    return '<div class="empty-state"><b>'+empty[0]+'</b>'+empty[1]+'<br><br><label class="primary-button file-label">Выбрать аудио<input id="file-input-empty" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label> <button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button></div>';
   }
   return '<div class="track-list">'+list.map(track=>{
     const details=[track.artist||'Неизвестный исполнитель',track.album||'',track.duration?formatTime(track.duration):'',
       track.lastPlayedAt?'Прослушан: '+new Date(track.lastPlayedAt).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short'}):''].filter(Boolean).join(' · ');
     const actions=[
-      '<button class="small-button" data-action="play-track" data-id="'+escapeHtml(track.id)+'" aria-label="Воспроизвести '+escapeHtml(track.title)+'" title="Воспроизвести">▶</button>',
+      track.externalUrl
+        ? '<button class="small-button" data-action="open-source" data-id="'+escapeHtml(track.id)+'" aria-label="Открыть музыкальный сайт" title="Открыть музыкальный сайт">↗</button>'
+        : '<button class="small-button" data-action="play-track" data-id="'+escapeHtml(track.id)+'" aria-label="Воспроизвести '+escapeHtml(track.title)+'" title="Воспроизвести">▶</button>',
       '<button class="small-button '+(state.favorites.includes(track.id)?'active':'')+'" data-action="favorite" data-id="'+escapeHtml(track.id)+'" aria-label="Избранное" title="Избранное">♥</button>',
+      '<button class="small-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track.id)+'" aria-label="Текст песни" title="Текст песни">≡</button>',
       state.page==='queue'?(track.id===state.currentId?'':'<button class="small-button" data-action="queue-remove" data-id="'+escapeHtml(track.id)+'" aria-label="Убрать из очереди" title="Убрать из очереди">−</button>'):
         '<button class="small-button" data-action="queue-next" data-id="'+escapeHtml(track.id)+'" aria-label="Добавить следующим" title="Добавить следующим">↥</button>',
       '<button class="small-button" data-action="edit-track" data-id="'+escapeHtml(track.id)+'" aria-label="Изменить метаданные" title="Изменить метаданные">✎</button>',
@@ -161,7 +168,8 @@ function renderTracks(list) {
         '<button class="small-button" data-action="add-playlist-track" data-id="'+escapeHtml(track.id)+'" aria-label="Добавить в плейлист" title="Добавить в плейлист">＋</button>',
       desktopRuntime?'<button class="small-button delete-track-button" data-action="delete-track" data-id="'+escapeHtml(track.id)+'" aria-label="Удалить '+escapeHtml(track.title)+' из медиатеки" title="Удалить из медиатеки">×</button>':''
     ].join('');
-    return '<article class="track-row '+(track.id===state.currentId?'is-playing':'')+'"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>'+escapeHtml(track.title)+'</b><span>'+escapeHtml(details)+'</span></div><div class="row-actions">'+actions+'</div></article>';
+    const sourceBadge=track.externalUrl?' · Ссылка':track.url?' · Поток':'';
+    return '<article class="track-row '+(track.id===state.currentId?'is-playing':'')+'"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>'+escapeHtml(track.title)+'</b><span>'+escapeHtml(details+sourceBadge)+'</span></div><div class="row-actions">'+actions+'</div></article>';
   }).join('')+'</div>';
 }
 function librarySummary() {
@@ -172,11 +180,11 @@ function librarySummary() {
 function pageContent() {
   if(state.page==='home') {
     const recent=state.search.trim()?visibleTracks():[...state.tracks].slice(-6).reverse();
-    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+librarySummary()+
+    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+librarySummary()+
     '<div class="section-head"><div><h2>Недавно добавленные</h2><p>Треки из локальной медиатеки</p></div><button class="text-button" data-page="library">Вся медиатека →</button></div>'+renderTracks(recent)+
     '<div class="section-head"><div><h2>Недавно прослушано</h2><p>Последние 4 композиции</p></div><button class="text-button" data-page="history">Вся история →</button></div>'+renderTracks(historyTracks(4));
   }
-  if(state.page==='library') return '<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные хранятся локально и доступны после перезапуска.</p></div><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept=".mp3,.wav,.flac,.ogg,.oga,.m4a,.aac" multiple></label></div><div class="library-toolbar">'+sortControl()+'<span class="muted">'+visibleTracks().length+' треков</span></div>'+renderTracks(visibleTracks());
+  if(state.page==='library') return '<div class="page-head"><div><div class="eyebrow">YOUR COLLECTION</div><h1 class="page-title">Медиатека</h1><p class="muted">Аудиофайлы и метаданные хранятся локально и доступны после перезапуска.</p></div><div class="queue-toolbar"><label class="primary-button file-label">＋ Добавить файлы<input id="file-input-library" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить ссылку</button></div></div><div class="library-toolbar">'+sortControl()+'<span class="muted">'+visibleTracks().length+' треков</span></div>'+renderTracks(visibleTracks());
   if(state.page==='favorites') return '<div class="page-head"><div><div class="eyebrow">YOUR FAVORITES</div><h1 class="page-title">Избранное</h1><p class="muted">Список избранного хранится локально.</p></div></div><div class="library-toolbar">'+sortControl()+'</div>'+renderTracks(visibleTracks());
   if(state.page==='history') return '<div class="page-head"><div><div class="eyebrow">LISTENING HISTORY</div><h1 class="page-title">История прослушивания</h1><p class="muted">Последние 100 уникальных композиций; повтор поднимает трек вверх списка.</p></div><button class="secondary-button" data-action="clear-history">Очистить историю</button></div>'+renderTracks(visibleTracks());
   if(state.page==='queue') {
