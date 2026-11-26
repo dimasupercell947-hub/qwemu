@@ -206,12 +206,15 @@ function pageContent() {
           <label>Тема<select id="theme-select">${Object.keys(themes).map(theme=>`<option value="${theme}" ${state.settings.theme===theme?'selected':''}>${theme}</option>`).join('')}</select></label>
           <label>Громкость по умолчанию<input id="volume-setting" type="range" min="0" max="1" step="0.01" value="${state.settings.volume}"></label>
           <label class="motion-setting"><input id="reduced-motion-setting" type="checkbox" ${state.settings.reducedMotion?'checked':''}> Уменьшить анимации</label>
+          <label class="motion-setting"><input id="background-playback-setting" type="checkbox" ${state.settings.backgroundPlayback!==false?'checked':''}> Фоновое воспроизведение</label>
         </div></section>
         <section class="surface" style="margin-top:14px"><h2>Локальная медиатека</h2>
           <p class="muted">Аудиофайлы хранятся в IndexedDB профиля приложения. Они не загружаются в интернет и не отправляются в Cloudflare. Не очищай данные приложения, чтобы не удалить сохранённую коллекцию.</p>
           <p class="muted">Облачная авторизация и синхронизация доступны в отдельной Web Edition.</p>
         </section>
-        <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>`;
+        <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop 1.7.0. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
     const conflicts=Object.entries(state.cloudConflicts).map(([key])=>`<article class="surface" style="margin-top:10px"><h3>${conflictNames[key]||key}</h3><p class="muted">Эти данные были изменены на другом устройстве. Выбери, какую версию оставить.</p><button class="secondary-button" data-action="resolve-cloud-remote" data-key="${key}">Использовать облачную</button> <button class="primary-button" data-action="resolve-cloud-local" data-key="${key}">Оставить эту версию</button></article>`).join('');
@@ -374,7 +377,7 @@ async function restoreDesktopLibrary() {
 
 async function addFiles(fileList) {
   if (desktopRuntime && !libraryReady) await libraryRestorePromise;
-  const selected = [...(fileList || [])].filter(file => file instanceof File && /\.(mp3|wav|flac|ogg|oga|m4a|aac)$/i.test(file.name));
+  const selected = [...(fileList || [])].filter(file => file instanceof File && supportsAudioFile(file));
   if (selected.length > 500) { toast('За один импорт можно добавить не более 500 файлов.'); return; }
   if (!selected.length) { toast('Не найдено поддерживаемых аудиофайлов.'); return; }
   const files=selected.filter(file=>file.size>0 && file.size<=512*1024*1024);
@@ -393,7 +396,7 @@ async function addFiles(fileList) {
     catch (error) { toast(error?.message || 'Не удалось проверить аудиофайл.'); return; }
     if (existing.has(id)) continue;
     const title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g,' ').trim() || file.name;
-    const track = { id, name: file.name, title, artist: 'Неизвестный исполнитель', album: 'Локальный файл', size: file.size, lastModified: file.lastModified, duration: 0, addedAt: Date.now() };
+    const track = { id, name: file.name, title, artist: 'Неизвестный исполнитель', album: 'Локальный файл', lyrics: '', size: file.size, lastModified: file.lastModified, duration: 0, addedAt: Date.now() };
     if (!desktopRuntime) track.file = file.slice(0, file.size, file.type);
     if (desktopRuntime) {
       try { await libraryStore.put(track, file.slice(0, file.size, file.type)); }
@@ -425,8 +428,9 @@ async function playTrack(id, queueIds = null) {
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
   const requestId=++state.playRequestId;
   try {
-    const playable=desktopRuntime?{...track,file:await libraryStore.getFile(id)}:track;
-    if(desktopRuntime&&!(playable.file instanceof Blob))throw new Error('Аудиофайл отсутствует в медиатеке. Импортируй его повторно.');
+    const playable=desktopRuntime&&!track.url?{...track,file:await libraryStore.getFile(id)}:track;
+    if(desktopRuntime&&!track.url&&!(playable.file instanceof Blob))throw new Error('Аудиофайл отсутствует в медиатеке. Импортируй его повторно.');
+    if(track.externalUrl)throw new Error('Это сохранённая ссылка на музыкальный сайт. Открой источник для прослушивания.');
     await audio.play(playable);
     if(requestId!==state.playRequestId)return;
     state.currentId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
@@ -555,14 +559,14 @@ async function deleteLibraryTrack(id) {
 
 function editTrack(id){
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
-  $('#track-id').value=track.id;$('#track-title').value=track.title||'';$('#track-artist').value=track.artist||'';$('#track-album').value=track.album||'';$('#track-error').textContent='';$('#track-dialog').showModal();
+  $('#track-id').value=track.id;$('#track-title').value=track.title||'';$('#track-artist').value=track.artist||'';$('#track-album').value=track.album||'';$('#track-lyrics').value=track.lyrics||'';$('#lyrics-file').value='';$('#track-error').textContent='';$('#track-dialog').showModal();
 }
 async function saveTrackMetadata(event){
   event.preventDefault();const id=$('#track-id').value,track=state.tracks.find(item=>item.id===id);
   if(!track){$('#track-error').textContent='Трек больше не найден в медиатеке.';return;}
-  const title=$('#track-title').value.trim().slice(0,160),artist=$('#track-artist').value.trim().slice(0,120),album=$('#track-album').value.trim().slice(0,120);
+  const title=$('#track-title').value.trim().slice(0,160),artist=$('#track-artist').value.trim().slice(0,120),album=$('#track-album').value.trim().slice(0,120),lyrics=normalizeLyrics($('#track-lyrics').value);
   if(!title){$('#track-error').textContent='Укажи название композиции.';return;}
-  const previous={title:track.title,artist:track.artist,album:track.album};Object.assign(track,{title,artist,album});
+  const previous={title:track.title,artist:track.artist,album:track.album,lyrics:track.lyrics||''};Object.assign(track,{title,artist,album,lyrics});
   try{if(desktopRuntime)await libraryStore.updateMetadata(track);$('#track-dialog').close();render();toast(desktopRuntime?'Метаданные сохранены в локальной медиатеке.':'Метаданные изменены до закрытия вкладки.');}
   catch(error){Object.assign(track,previous);$('#track-error').textContent=error.message||'Не удалось сохранить метаданные.';}
 }
@@ -668,10 +672,12 @@ document.addEventListener('click', async event => {
 document.addEventListener('change', event => {
   if (event.target.id === 'm3u-import') { const file=event.target.files?.[0]; if(file)importPlaylistFile(file); event.target.value=''; return; }
   if (event.target.id === 'sort-select') { state.sortMode=Object.hasOwn(TRACK_SORT_MODES,event.target.value)?event.target.value:'added-desc';writeLocal('sort-mode',state.sortMode);render();return; }
+  if (event.target.id === 'lyrics-file') { importLyricsFile(event.target.files?.[0]); event.target.value=''; return; }
   if (event.target.matches('input[type="file"]')) { addFiles(event.target.files); event.target.value = ''; }
   if (event.target.id === 'theme-select') { state.settingsRevision += 1; state.settings.theme = validThemes.includes(event.target.value)?event.target.value:'dark-red'; applyTheme(); saveLocal(); persistCloud('settings', state.settings); }
   if (event.target.id === 'volume-setting') { state.settingsRevision += 1; state.settings.volume = Number(event.target.value); $('#volume').value = String(state.settings.volume); audio.setVolume(state.settings.volume); saveLocal(); persistCloud('settings', state.settings); }
   if (event.target.id === 'reduced-motion-setting') { state.settingsRevision += 1; state.settings.reducedMotion = event.target.checked; applyTheme(); saveLocal(); persistCloud('settings', state.settings); }
+  if (event.target.id === 'background-playback-setting') { state.settingsRevision += 1; state.settings.backgroundPlayback = event.target.checked; saveLocal(); persistCloud('settings', state.settings); toast(event.target.checked?'Фоновое воспроизведение включено.':'При скрытии окна музыка будет ставиться на паузу.'); }
 });
 $('#auth-form').addEventListener('submit', submitAuth);
 $('#track-form').addEventListener('submit', saveTrackMetadata);
