@@ -29,3 +29,20 @@ test('home search examines the whole library, while an empty search shows recent
   assert.deepEqual(buildPlaybackQueue({ page: 'home', tracks, search: 'older match' }), ['g']);
   assert.deepEqual(buildPlaybackQueue({ page: 'home', tracks }), ['g', 'f', 'e', 'd', 'c', 'b']);
 });
+
+import { getNextQueueIndex, shuffleQueue } from '../public/assets/playback-queue.js';
+
+test('queue navigation handles boundaries and repeat-all mode', () => {
+  const queue = ['a', 'b', 'c'];
+  assert.equal(getNextQueueIndex(queue, 'a', 1), 1);
+  assert.equal(getNextQueueIndex(queue, 'c', 1), -1);
+  assert.equal(getNextQueueIndex(queue, 'a', -1), -1);
+  assert.equal(getNextQueueIndex(queue, 'c', 1, 'all'), 0);
+  assert.equal(getNextQueueIndex(queue, 'a', -1, 'all'), 2);
+  assert.equal(getNextQueueIndex([], null, 1), -1);
+});
+
+test('shuffle pins current track and de-duplicates IDs', () => {
+  assert.deepEqual(shuffleQueue(['a', 'b', 'c', 'b'], 'b', () => 0), ['b', 'c', 'a']);
+  assert.deepEqual(shuffleQueue(['a', 'b'], null, () => 0.99999), ['a', 'b']);
+});
