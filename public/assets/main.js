@@ -674,7 +674,7 @@ audio.on('ended', () => { if (state.repeatMode !== 'one') advance(1); });
 audio.on('error', () => toast('Браузер не смог декодировать этот файл. Попробуй другой формат.'));
 document.addEventListener('keydown', event => {
   const target=event.target;
-  const editing=target instanceof HTMLElement&&(target.isContentEditable||target.matches('input,textarea,select')||Boolean(target.closest('dialog[open]')));
+  const editing=target instanceof HTMLElement&&(target.isContentEditable||target.matches('input,textarea,select')||Boolean(target.closest('dialog[open],button,a,[role="button"],[role="link"]')));
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();$('#search').focus();return;}
   if(event.key==='Escape'){if($('#auth-dialog').open)$('#auth-dialog').close();if($('#track-dialog').open)$('#track-dialog').close();return;}
   if(editing||event.altKey)return;
