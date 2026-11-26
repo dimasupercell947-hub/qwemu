@@ -65,12 +65,14 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const version = context.refName.replace(/^v/i, '');
+            const tag = process.env.GITHUB_REF_NAME || context.ref.split('/').pop();
+            if (!tag) throw new Error('Release tag is missing from the GitHub Actions context.');
+            const version = tag.replace(/^v/i, '');
             const path = 'public/version.json';
             const manifest = {
               version: version,
-              tag: context.refName,
-              release_url: 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/releases/tag/' + context.refName,
+              tag: tag,
+              release_url: 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/releases/tag/' + tag,
               channel: 'stable',
               updated_at: new Date().toISOString()
             };

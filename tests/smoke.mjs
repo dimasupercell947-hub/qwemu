@@ -10,6 +10,8 @@ const read = path => readFileSync(join(root, path), 'utf8');
 const required = [
   'public/index.html',
   'public/version.json',
+  'public/assets/version-state.js',
+  'tests/version-state.test.mjs',
   'public/assets/main.js',
   'public/assets/library-store.js',
   'public/assets/desktop-bridge.js',
@@ -117,12 +119,18 @@ assert.ok(!read('public/index.html').includes('id="stop"'), 'Stop button must no
 assert.ok(main.includes('checkForUpdates({silent:true})'), 'Update check must run on startup');
 assert.ok(main.includes('UPDATE_MANIFEST_URL'), 'CDN-backed update manifest must be available');
 assert.ok(main.includes('Promise.allSettled'), 'Updater must have fallback sources');
+assert.ok(main.includes('parseStableVersion'), 'Updater must use strict SemVer parsing');
+assert.ok(main.includes('compareStableVersions'), 'Updater must compare numeric SemVer components');
+assert.ok(read('.github/workflows/release.yml').includes('GITHUB_REF_NAME'), 'Release workflow must read tag from runner environment');
+assert.ok(!read('.github/workflows/release.yml').includes('context.refName'), 'Workflow must not use context.refName');
+assert.ok(css.includes('.player{height:112px}'));
+assert.ok(css.includes('@media(max-width:700px){.player{height:168px}body{padding-bottom:168px}}'), 'Mobile player offset must match player height');
 assert.ok(css.includes('.hotkey-grid'));
 assert.ok(css.includes('grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'));
 assert.ok(css.includes('input[type=range]::-webkit-slider-thumb'));
 assert.ok(css.includes('box-shadow:0 12px 32px rgba(0,0,0,.6)'));
 const versionManifest = JSON.parse(read('public/version.json'));
-assert.match(versionManifest.version, /^\d+(?:\.\d+){1,3}$/);
+assert.match(versionManifest.version, /^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/);
 assert.ok(read('public/index.html').includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
 

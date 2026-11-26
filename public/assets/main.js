@@ -12,6 +12,7 @@ import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
 import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
 import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
+import { compareStableVersions, parseStableVersion } from './version-state.js';
 
 const $ = selector => document.querySelector(selector);
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '1.7.0';
@@ -686,16 +687,9 @@ function installMediaSessionHandlers(){
   };
   for(const [action,handler] of Object.entries(handlers))try{navigator.mediaSession.setActionHandler(action,handler);}catch{}
 }
-function compareVersions(left,right){
-  const a=String(left).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
-  const b=String(right).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
-  for(let i=0;i<Math.max(a.length,b.length);i++){const diff=(a[i]||0)-(b[i]||0);if(diff)return Math.sign(diff);}
-  return 0;
-}
+
 function parseRemoteVersion(value){
-  const version=String(value||'').replace(/^v/i,'');
-  if(!/^\d+(?:\.\d+){1,3}$/.test(version))throw new Error('Некорректный номер версии');
-  return version;
+  return parseStableVersion(value).join('.');
 }
 async function fetchUpdateDocument(url){
   const controller=new AbortController();
@@ -736,8 +730,8 @@ async function checkForUpdates(options={}){
       const details=checks.map(result=>result.status==='rejected'?(result.reason?.message||'ошибка сети'):'').filter(Boolean).join('; ');
       throw new Error('GitHub не ответил через основной и резервный каналы. '+details);
     }
-    candidates.sort((a,b)=>compareVersions(b.version,a.version));
-    const latest=candidates[0],comparison=compareVersions(latest.version,APP_VERSION);
+    candidates.sort((a,b)=>compareStableVersions(b.version,a.version));
+    const latest=candidates[0],comparison=compareStableVersions(latest.version,APP_VERSION);
     if(comparison>0){
       state.updateStatus='Доступно обновление '+latest.version+'. Нажми «Скачать», чтобы открыть установщики на GitHub.';
       showUpdateNotice(latest.version);

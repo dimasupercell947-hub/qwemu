@@ -182,5 +182,8 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:2px solid #fff
 }
 @media(max-width:420px){.hotkey-item{gap:8px;font-size:12px}.hotkey-grid{column-gap:12px}.transport-buttons{gap:4px}}
 
-/* Match the fixed desktop player footprint. */
+.player{height:112px}
 body{padding-bottom:112px}
+.app-shell{min-height:calc(100vh - 112px)}
+@media(max-height:700px){.sidebar{height:calc(100vh - 112px)}}
+@media(max-width:700px){.player{height:168px}body{padding-bottom:168px}}
