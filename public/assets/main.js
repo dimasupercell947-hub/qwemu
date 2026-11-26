@@ -240,7 +240,7 @@ function render() {
   $('#player-title').textContent = current?.title || 'Ничего не воспроизводится';
   $('#player-artist').textContent = current?.artist || 'Добавь аудиофайлы из своей коллекции';
   $('#cover').textContent = '';
-  $('#cover').style.backgroundImage = "url('./assets/qwemu-logo.png')";
+  $('#cover').style.backgroundImage = "url('./assets/logo.svg')";
   $('#play').innerHTML = audio.getStatus().playing ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM15 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
   $('#play').classList.toggle('playing',audio.getStatus().playing);
   const repeatLabels={off:'Повтор выключен',all:'Повтор плейлиста',one:'Повтор текущего трека'};
@@ -692,7 +692,7 @@ async function checkForUpdates(){
       latest=String((await response.json()).version||'');
     }else throw new Error('GitHub API: '+release.status);
     if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
-    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):('Установлена актуальная версия 1.7.0 (проверено по '+source+').');
+    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,'1.7.0')===0?('Установлена актуальная версия 1.7.0 (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена 1.7.0 — она новее main; страницу релизов можно проверить вручную.');
     status.textContent=state.updateStatus;
     if(compareVersions(latest,'1.7.0')>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
   }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
