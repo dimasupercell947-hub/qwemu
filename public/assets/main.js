@@ -694,7 +694,7 @@ function compareVersions(left,right){
 }
 function parseRemoteVersion(value){
   const version=String(value||'').replace(/^v/i,'');
-  if(!/^\\d+(?:\\.\\d+){1,3}$/.test(version))throw new Error('Некорректный номер версии');
+  if(!/^\d+(?:\.\d+){1,3}$/.test(version))throw new Error('Некорректный номер версии');
   return version;
 }
 async function fetchUpdateDocument(url){
