@@ -12,10 +12,15 @@ import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
 import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
 import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
+import { PlaybackRequestGate } from './playback-request.js';
+import { SerialTaskQueue } from './serial-task-queue.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
 const libraryStore = new LibraryStore();
+const playbackRequests = new PlaybackRequestGate();
+const importQueue = new SerialTaskQueue();
+const APP_VERSION = '1.8.0';
 const desktopRuntime = globalThis.QWEMU_DESKTOP === true;
 let libraryReady = !desktopRuntime;
 let libraryRestorePromise = Promise.resolve();
@@ -39,7 +44,7 @@ const state = {
   playlists: Array.isArray(savedPlaylists)?savedPlaylists.filter(item=>item&&typeof item.id==='string'&&typeof item.name==='string'&&Array.isArray(item.trackIds)).slice(0,300):[],
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
-  currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
+  currentId: null, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
   lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
@@ -213,7 +218,7 @@ function pageContent() {
           <p class="muted">Облачная авторизация и синхронизация доступны в отдельной Web Edition.</p>
         </section>
         <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
-        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop 1.7.0. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
         <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
@@ -378,37 +383,102 @@ async function restoreDesktopLibrary() {
   if (state.tracks.length) toast('Медиатека восстановлена: ' + state.tracks.length + ' треков.');
 }
 
-async function addFiles(fileList) {
+function addFiles(fileList) {
+  const files = [...(fileList || [])];
+  return importQueue.run(() => addFilesNow(files));
+}
+
+async function addFilesNow(fileList) {
   if (desktopRuntime && !libraryReady) await libraryRestorePromise;
   const selected = [...(fileList || [])].filter(file => file instanceof File && supportsAudioFile(file));
-  if (selected.length > 500) { toast('За один импорт можно добавить не более 500 файлов.'); return; }
-  if (!selected.length) { toast('Не найдено поддерживаемых аудиофайлов.'); return; }
-  const files=selected.filter(file=>file.size>0 && file.size<=512*1024*1024);
-  const alreadyUsed=state.tracks.reduce((sum,track)=>sum+(Number(track.size)||0),0);
-  const remainingBytes=Math.max(0,2*1024*1024*1024-alreadyUsed);
-  let plannedBytes=0;
-  const boundedFiles=files.filter(file=>{if(plannedBytes+file.size>remainingBytes)return false;plannedBytes+=file.size;return true;});
-  const rejected=selected.length-boundedFiles.length;
-  if (rejected) toast(`Пропущено файлов из-за пустого файла или ограничений размера (512 МиБ на файл, 2 ГиБ на медиатеку): ${rejected}.`);
-  if (state.tracks.length + boundedFiles.length > 5000) { toast(desktopRuntime ? 'Лимит Desktop Edition — 5000 треков в медиатеке.' : 'Лимит Web Edition — 5000 треков в одной сессии.'); return; }
+  if (selected.length > 500) {
+    toast('За один импорт можно добавить не более 500 файлов.');
+    return;
+  }
+  if (!selected.length) {
+    toast('Не найдено поддерживаемых аудиофайлов.');
+    return;
+  }
+
+  const files = selected.filter(file => file.size > 0 && file.size <= 512 * 1024 * 1024);
+  const alreadyUsed = state.tracks.reduce((sum, track) => sum + (Number(track.size) || 0), 0);
+  const remainingBytes = Math.max(0, 2 * 1024 * 1024 * 1024 - alreadyUsed);
+  let plannedBytes = 0;
+  const boundedFiles = files.filter(file => {
+    if (plannedBytes + file.size > remainingBytes) return false;
+    plannedBytes += file.size;
+    return true;
+  });
+  const rejected = selected.length - boundedFiles.length;
+
+  if (state.tracks.length + boundedFiles.length > 5000) {
+    toast(desktopRuntime
+      ? 'Лимит Desktop Edition — 5000 треков в медиатеке.'
+      : 'Лимит Web Edition — 5000 треков в одной сессии.');
+    return;
+  }
+
   let added = 0;
-  const existing=new Set(state.tracks.map(track=>track.id));
+  let duplicates = 0;
+  let failed = 0;
+  const existing = new Set(state.tracks.map(track => track.id));
+
   for (const file of boundedFiles) {
     let id;
-    try { id = await fingerprintFile(file); }
-    catch (error) { toast(error?.message || 'Не удалось проверить аудиофайл.'); return; }
-    if (existing.has(id)) continue;
-    const title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g,' ').trim() || file.name;
-    const track = { id, name: file.name, title, artist: 'Неизвестный исполнитель', album: 'Локальный файл', lyrics: '', size: file.size, lastModified: file.lastModified, duration: 0, addedAt: Date.now() };
-    if (!desktopRuntime) track.file = file.slice(0, file.size, file.type);
-    if (desktopRuntime) {
-      try { await libraryStore.put(track, file.slice(0, file.size, file.type)); }
-      catch (error) { toast('Не удалось сохранить «' + file.name + '»: ' + (error?.message || error)); continue; }
+    try {
+      id = await fingerprintFile(file);
+    } catch (error) {
+      failed += 1;
+      console.warn('QWEMU не смог идентифицировать файл:', file.name, error);
+      continue;
     }
+
+    if (existing.has(id) || state.tracks.some(track => track.id === id)) {
+      duplicates += 1;
+      existing.add(id);
+      continue;
+    }
+
+    const title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || file.name;
+    const track = {
+      id,
+      name: file.name,
+      title,
+      artist: 'Неизвестный исполнитель',
+      album: 'Локальный файл',
+      lyrics: '',
+      size: file.size,
+      lastModified: file.lastModified,
+      duration: 0,
+      addedAt: Date.now()
+    };
+    if (!desktopRuntime) track.file = file.slice(0, file.size, file.type);
+
+    if (desktopRuntime) {
+      try {
+        await libraryStore.put(track, file.slice(0, file.size, file.type));
+      } catch (error) {
+        failed += 1;
+        console.warn('QWEMU не смог сохранить файл:', file.name, error);
+        continue;
+      }
+    }
+
     state.tracks.push(track);
-    existing.add(id); added++;
+    existing.add(id);
+    added += 1;
   }
-  render(); toast(added ? (desktopRuntime ? `Добавлено файлов: ${added}. Они сохранены в медиатеке.` : `Добавлено файлов: ${added}. Они остаются в этой вкладке.`) : 'Выбранные файлы уже добавлены.');
+
+  render();
+  const summary = [];
+  if (added) summary.push('добавлено: ' + added);
+  if (duplicates) summary.push('уже в медиатеке: ' + duplicates);
+  if (rejected) summary.push('отклонено по лимитам: ' + rejected);
+  if (failed) summary.push('ошибок: ' + failed);
+  const destination = desktopRuntime
+    ? 'Файлы сохраняются в локальной медиатеке.'
+    : 'Файлы доступны до закрытия вкладки.';
+  toast((summary.length ? summary.join(' · ') : 'Новые файлы не добавлены') + '. ' + destination);
 }
 function getPlaybackQueue() {
   const playable=state.tracks.filter(track=>!track.externalUrl);
@@ -432,20 +502,21 @@ async function playTrack(id, queueIds = null) {
   }
   state.playbackIndex=state.playbackQueue.indexOf(id);
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
-  const requestId=++state.playRequestId;
+  const requestId=playbackRequests.begin();
   try {
     const playable=desktopRuntime&&!track.url?{...track,file:await libraryStore.getFile(id)}:track;
+    if(!playbackRequests.isCurrent(requestId))return;
     if(desktopRuntime&&!track.url&&!(playable.file instanceof Blob))throw new Error('Аудиофайл отсутствует в медиатеке. Импортируй его повторно.');
     if(track.externalUrl)throw new Error('Это сохранённая ссылка на музыкальный сайт. Открой источник для прослушивания.');
     await audio.play(playable);
-    if(requestId!==state.playRequestId)return;
+    if(!playbackRequests.isCurrent(requestId))return;
     state.currentId=id;state.lyricsTrackId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
   }catch(error){
-    if(requestId!==state.playRequestId)return;
+    if(!playbackRequests.isCurrent(requestId))return;
     audio.stop();state.currentId=null;render();toast('Не удалось воспроизвести "'+track.title+'": '+(error.message||'проверь формат файла'));
   }
 }
-function stopPlayback(){state.playRequestId+=1;audio.stop();state.currentId=null;render();}
+function stopPlayback(){playbackRequests.invalidate();audio.stop();state.currentId=null;render();}
 function advance(direction) {
   const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const queue=state.playbackQueue.filter(id=>available.has(id));
@@ -698,9 +769,9 @@ async function checkForUpdates(){
       latest=String((await response.json()).version||'');
     }else throw new Error('GitHub API: '+release.status);
     if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
-    state.updateStatus=compareVersions(latest,'1.7.0')>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,'1.7.0')===0?('Установлена актуальная версия 1.7.0 (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена 1.7.0 — она новее main; страницу релизов можно проверить вручную.');
+    state.updateStatus=compareVersions(latest,APP_VERSION)>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,APP_VERSION)===0?('Установлена актуальная версия '+APP_VERSION+' (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена '+APP_VERSION+' — она новее main; страницу релизов можно проверить вручную.');
     status.textContent=state.updateStatus;
-    if(compareVersions(latest,'1.7.0')>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
+    if(compareVersions(latest,APP_VERSION)>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
   }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
 }
 function exportPlaylist(id){
@@ -878,7 +949,7 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&audio.getStatus().playing)document.dispatchEvent(new Event('qwemu-foreground'));
 });
 installMediaSessionHandlers();
-window.addEventListener('pagehide', () => { state.playRequestId += 1; audio.destroy(); }, { once: true });
+window.addEventListener('pagehide', () => { playbackRequests.invalidate(); audio.destroy(); }, { once: true });
 
 applyTheme(); render();
 if (desktopRuntime) {
