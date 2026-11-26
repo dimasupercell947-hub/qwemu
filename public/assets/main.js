@@ -10,7 +10,7 @@ import { HISTORY_LIMIT, normalizePlayHistory, recordPlay, resolveHistoryTracks }
 import { TRACK_SORT_MODES, sortTracks } from './track-sort.js';
 import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
 import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
-import { classifyMusicUrl, titleFromMusicUrl } from './music-url.js';
+import { classifyMusicUrl, titleFromMusicUrl, MUSIC_PLATFORMS } from './music-url.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
@@ -161,7 +161,7 @@ function renderTracks(list) {
       track.lastPlayedAt?'Прослушан: '+new Date(track.lastPlayedAt).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short'}):''].filter(Boolean).join(' · ');
     const actions=[
       track.externalUrl
-        ? '<button class="small-button" data-action="open-source" data-id="'+escapeHtml(track.id)+'" aria-label="Открыть музыкальный сайт" title="Открыть музыкальный сайт">↗</button>'
+        ? '<button class="small-button" data-action="open-source" data-id="'+escapeHtml(track.id)+'" aria-label="Открыть '+escapeHtml(track.providerName||'музыкальный сервис')+'" title="Открыть '+escapeHtml(track.providerName||'музыкальный сервис')+'">↗</button>'
         : '<button class="small-button" data-action="play-track" data-id="'+escapeHtml(track.id)+'" aria-label="Воспроизвести '+escapeHtml(track.title)+'" title="Воспроизвести">▶</button>',
       '<button class="small-button '+(state.favorites.includes(track.id)?'active':'')+'" data-action="favorite" data-id="'+escapeHtml(track.id)+'" aria-label="Избранное" title="Избранное">♥</button>',
       '<button class="small-button" data-action="lyrics-open-track" data-id="'+escapeHtml(track.id)+'" aria-label="Текст песни" title="Текст песни">≡</button>',
@@ -173,7 +173,7 @@ function renderTracks(list) {
         '<button class="small-button" data-action="add-playlist-track" data-id="'+escapeHtml(track.id)+'" aria-label="Добавить в плейлист" title="Добавить в плейлист">＋</button>',
       desktopRuntime?'<button class="small-button delete-track-button" data-action="delete-track" data-id="'+escapeHtml(track.id)+'" aria-label="Удалить '+escapeHtml(track.title)+' из медиатеки" title="Удалить из медиатеки">×</button>':''
     ].join('');
-    const sourceBadge=track.externalUrl?' · Ссылка':track.url?' · Поток':'';
+    const sourceBadge=track.externalUrl?' · '+(track.providerName||'Музыкальный сервис')+' · ссылка':track.url?' · Прямой аудиопоток':'';
     return '<article class="track-row '+(track.id===state.currentId?'is-playing':'')+'"><div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>'+escapeHtml(track.title)+'</b><span>'+escapeHtml(details+sourceBadge)+'</span></div><div class="row-actions">'+actions+'</div></article>';
   }).join('')+'</div>';
 }
@@ -645,45 +645,156 @@ async function saveTrackMetadata(event){
   catch(error){Object.assign(track,previous);$('#track-error').textContent=error.message||'Не удалось сохранить метаданные.';}
 }
 
-function openLinkDialog(){
-  $('#link-url').value='';$('#link-title').value='';$('#link-artist').value='';
-  $('#link-result').textContent='Вставь HTTPS-ссылку на аудиофайл или музыкальный сайт.';
+function renderMusicPlatformList() {
+  const holder = $('#link-sites');
+  if (!holder) return;
+
+  const groups = new Map();
+  for (const platform of MUSIC_PLATFORMS) {
+    if (!groups.has(platform.category)) groups.set(platform.category, []);
+    groups.get(platform.category).push(platform);
+  }
+
+  holder.innerHTML = [...groups.entries()].map(([category, platforms]) =>
+    '<section class="source-catalog-group"><b>' + escapeHtml(category) + '</b><div class="source-catalog-chips">' +
+    platforms.map(platform => '<span class="source-catalog-chip">' + escapeHtml(platform.name) + '</span>').join('') +
+    '</div></section>'
+  ).join('');
+}
+
+function openLinkDialog() {
+  $('#link-url').value = '';
+  $('#link-title').value = '';
+  $('#link-artist').value = '';
+  $('#link-result').textContent = 'Вставь ссылку на аудиофайл или музыкальную платформу.';
+  renderMusicPlatformList();
   $('#link-dialog').showModal();
 }
-function previewMusicLink(){
-  const result=classifyMusicUrl($('#link-url').value);
-  const node=$('#link-result');
-  if(!node)return;
-  node.textContent=result.ok?(result.kind==='direct-audio'?'Распознана прямая аудиоссылка ('+result.extension.toUpperCase()+'). Можно добавить поток в библиотеку.':'Распознан музыкальный сайт '+result.hostname+'. Сохраним ссылку-закладку; скачивание не выполняется.'):(result.reason||'Введите ссылку.');
+
+function previewMusicLink() {
+  const result = classifyMusicUrl($('#link-url').value);
+  const node = $('#link-result');
+  if (!node) return;
+
+  if (!result.ok) {
+    node.textContent = result.reason || 'Введите ссылку.';
+    return;
+  }
+
+  node.textContent = result.kind === 'direct-audio'
+    ? 'Распознан прямой аудиопоток ' + result.extension.toUpperCase() +
+      '. Он будет воспроизводиться внутри QWEMU; эквалайзер применяется к локальным и same-origin файлам.'
+    : 'Сервис: ' + result.serviceName + '. Ссылка сохранится в медиатеке как закладка. Кнопка ↗ откроет оригинальный сайт или приложение сервиса.';
 }
-async function addMusicLink(){
-  const classified=classifyMusicUrl($('#link-url').value);
-  if(!classified.ok){$('#link-result').textContent=classified.reason;return;}
-  if(state.tracks.length>=5000){toast('Достигнут лимит 5000 записей.');return;}
-  const title=$('#link-title').value.trim().slice(0,160)||titleFromMusicUrl(classified.url);
-  const artist=$('#link-artist').value.trim().slice(0,120)||'Неизвестный исполнитель';
-  const id='link-'+uid();
-  const track={id,name:title,title,artist,album:'Добавлено по ссылке',lyrics:'',size:0,lastModified:0,duration:0,addedAt:Date.now()};
-  if(classified.kind==='direct-audio')track.url=classified.url;
-  else track.externalUrl=classified.url;
-  try{
-    if(desktopRuntime)await libraryStore.putLink(track);
+
+async function addMusicLink() {
+  const classified = classifyMusicUrl($('#link-url').value);
+  if (!classified.ok) {
+    $('#link-result').textContent = classified.reason;
+    return;
+  }
+
+  const duplicate = state.tracks.find(track =>
+    (track.url || track.externalUrl) === classified.url
+  );
+  if (duplicate) {
+    $('#link-result').textContent = 'Эта ссылка уже есть в медиатеке: ' + duplicate.title + '.';
+    toast('Ссылка уже добавлена в медиатеку.');
+    return;
+  }
+
+  if (state.tracks.length >= 5000) {
+    toast('Достигнут лимит 5000 записей.');
+    return;
+  }
+
+  const title = $('#link-title').value.trim().slice(0, 160) || titleFromMusicUrl(classified.url);
+  const artist = $('#link-artist').value.trim().slice(0, 120) || 'Неизвестный исполнитель';
+  const id = 'link-' + uid();
+  const track = {
+    id,
+    name: title,
+    title,
+    artist,
+    album: 'Добавлено по ссылке',
+    lyrics: '',
+    size: 0,
+    lastModified: 0,
+    duration: 0,
+    addedAt: Date.now(),
+    providerId: classified.serviceId,
+    providerName: classified.serviceName,
+    linkKind: classified.kind
+  };
+
+  if (classified.kind === 'direct-audio') track.url = classified.url;
+  else track.externalUrl = classified.url;
+
+  try {
+    if (desktopRuntime) await libraryStore.putLink(track);
     state.tracks.push(track);
-    $('#link-dialog').close();render();
-    toast(classified.kind==='direct-audio'?'Ссылка добавлена в медиатеку. Доступность потока зависит от сайта.':'Музыкальная ссылка сохранена в медиатеке как закладка.');
-  }catch(error){$('#link-result').textContent='Не удалось сохранить ссылку: '+(error.message||error);}
+    $('#link-dialog').close();
+    render();
+
+    toast(classified.kind === 'direct-audio'
+      ? 'Аудиопоток добавлен. Воспроизведение доступно из медиатеки.'
+      : classified.serviceName + ' добавлен в медиатеку. Открывай запись кнопкой ↗.');
+  } catch (error) {
+    $('#link-result').textContent = 'Не удалось сохранить ссылку: ' + (error.message || error);
+  }
 }
+
 function showPlusDemo(){
   const query=$('#plus-demo-query')?.value.trim();
   const node=$('#plus-demo-result');
   if(!node)return;
   node.textContent=query?('QWEMU PLUS — DEMO: демонстрационный поиск по запросу «'+query.slice(0,120)+'». Реальный каталог не подключён; добавляй музыку через проверенную ссылку или локальный файл.'):'Введите запрос, чтобы показать демонстрационный экран поиска.';
 }
-function openMusicSource(url){
-  const classified=classifyMusicUrl(url);
-  if(!classified.ok||classified.kind!=='music-site'){toast('Ссылка не прошла проверку.');return;}
-  const opened=window.open(classified.url,'_blank','noopener,noreferrer');
-  if(!opened){navigator.clipboard?.writeText(classified.url).then(()=>toast('Ссылка скопирована в буфер обмена.')).catch(()=>toast('Открытие заблокировано; ссылка сохранена в записи.'));}
+async function copyMusicLink(value) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {}
+
+  const field = document.createElement('textarea');
+  field.value = value;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.append(field);
+  field.select();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {}
+  field.remove();
+  return copied;
+}
+
+function openMusicSource(url) {
+  const classified = classifyMusicUrl(url);
+  if (!classified.ok || classified.kind !== 'music-site') {
+    toast('Ссылка не прошла проверку.');
+    return;
+  }
+
+  try {
+    const opened = window.open(classified.url, '_blank');
+    if (opened) {
+      // Remove the opener reference immediately after creating the new window.
+      try { opened.opener = null; } catch {}
+      toast('Открываем ' + classified.serviceName + '.');
+      return;
+    }
+  } catch {}
+
+  copyMusicLink(classified.url).then(copied => {
+    toast(copied
+      ? 'Не удалось открыть окно. Ссылка скопирована в буфер обмена.'
+      : 'Не удалось открыть окно. Открой запись ещё раз или скопируй ссылку вручную.');
+  });
 }
 async function importLyricsFile(file){
   if(!(file instanceof File)||file.size>100000){toast('Текст песни должен быть TXT/LRC и не превышать 100 КБ.');return;}
@@ -914,7 +1025,7 @@ $('#seek').addEventListener('input', event => { const duration=audio.getStatus()
 $('#volume').value=String(state.settings.volume); audio.setVolume($('#volume').value);
 $('#volume').addEventListener('input', event => { audio.setVolume(event.target.value); state.settings.volume=Number(event.target.value); state.settingsRevision += 1; saveLocal(); });
 $('#volume').addEventListener('change', () => persistCloud('settings', state.settings));
-$('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('#audio').muted=muted; $('#mute').innerHTML=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM17 9l4 6m0-6-4 6"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12"/></svg>'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
+$('#mute').addEventListener('click', () => { const muted=audio.setMuted(!audio.isMuted()); $('#mute').innerHTML=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM17 9l4 6m0-6-4 6"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12"/></svg>'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
 audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration);syncLyricsHighlight(status.position);updateMediaSession(state.tracks.find(track=>track.id===state.currentId)); });
 audio.on('loadedmetadata', () => { const track=state.tracks.find(item=>item.id===state.currentId); if(track)track.duration=audio.getStatus().duration; render(); });
 audio.on('play', render); audio.on('pause', render);
