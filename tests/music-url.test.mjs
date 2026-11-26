@@ -76,6 +76,13 @@ test('recognizes approved subdomains but rejects lookalike domains', () => {
   assert.equal(classifyMusicUrl('https://notbandcamp.com/album/demo').ok, false);
 });
 
+test('platform routes take priority over audio-looking file extensions', () => {
+  const result = classifyMusicUrl('https://soundcloud.com/artist/track.mp3');
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, 'music-site');
+  assert.equal(result.serviceId, 'soundcloud');
+});
+
 test('VK is recognized only for music and audio routes', () => {
   assert.equal(classifyMusicUrl('https://vk.com/music').serviceId, 'vk-music');
   assert.equal(classifyMusicUrl('https://vk.com/audio/playlist/123').serviceId, 'vk-music');
