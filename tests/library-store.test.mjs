@@ -125,10 +125,14 @@ test('LibraryStore persists metadata and audio, and deletes both atomically', as
     await assert.rejects(store.putLink({...direct,url:'http://insecure.example.com/audio.mp3'}),TypeError);
     await assert.rejects(store.putLink({...direct,externalUrl:bookmark.externalUrl}),TypeError);
 
-    await store.remove(track.id);await store.remove(direct.id);await store.remove(bookmark.id);
+    const removed = await store.removeMany([track.id, direct.id, direct.id, bookmark.id]);
+    assert.equal(removed, 3, 'batch deletion de-duplicates IDs and reports deleted entries');
     assert.deepEqual(await store.list(), []);
     assert.equal(await store.getFile(track.id), null);
+    assert.equal(await store.removeMany([]), 0);
     await assert.rejects(store.remove(''), TypeError);
+    await assert.rejects(store.removeMany(['valid', '']), TypeError);
+    await assert.rejects(store.removeMany('not-an-array'), TypeError);
   } finally {
     if (original === undefined) delete globalThis.indexedDB;
     else globalThis.indexedDB = original;
