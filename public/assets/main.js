@@ -40,7 +40,7 @@ const state = {
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
   currentId: null, playRequestId: 0, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, toastTimer: null,
-  lyricsOpen: false, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
+  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -436,7 +436,7 @@ async function playTrack(id, queueIds = null) {
     if(track.externalUrl)throw new Error('Это сохранённая ссылка на музыкальный сайт. Открой источник для прослушивания.');
     await audio.play(playable);
     if(requestId!==state.playRequestId)return;
-    state.currentId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
+    state.currentId=id;state.lyricsTrackId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
   }catch(error){
     if(requestId!==state.playRequestId)return;
     audio.stop();state.currentId=null;render();toast('Не удалось воспроизвести "'+track.title+'": '+(error.message||'проверь формат файла'));
@@ -760,13 +760,15 @@ document.addEventListener('click', async event => {
   const { action: name, id, key } = action.dataset;
   if (name === 'play-track') await playTrack(id);
   else if (name === 'open-link-dialog') openLinkDialog();
+  else if (name === 'close-link') $('#link-dialog').close();
+  else if (name === 'plus-demo-link') { const q=$('#plus-link-query').value.trim();$('#plus-link-result').textContent=q?'QWEMU PLUS DEMO: демонстрационный запрос «'+q.slice(0,120)+'»; реальный каталог не подключён.':'Введите запрос.'; }
   else if (name === 'link-preview') previewMusicLink();
   else if (name === 'add-link') await addMusicLink();
   else if (name === 'plus-demo') showPlusDemo();
   else if (name === 'check-updates') await checkForUpdates();
-  else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;renderLyricsPanel(); }
-  else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.currentId=id;state.lyricsOpen=true;renderLyricsPanel();} }
-  else if (name === 'lyrics-close') { state.lyricsOpen=false;renderLyricsPanel(); }
+  else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel(); }
+  else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.lyricsTrackId=id;state.lyricsOpen=true;renderLyricsPanel();} }
+  else if (name === 'lyrics-close') { state.lyricsOpen=false;state.lyricsTrackId=null;state.activeLyric=-1;renderLyricsPanel(); }
   else if (name === 'seek-lyrics') { const seconds=Number(action.dataset.seconds);if(Number.isFinite(seconds))audio.seek(seconds); }
   else if (name === 'open-source') { const track=state.tracks.find(item=>item.id===id);if(track?.externalUrl)openMusicSource(track.externalUrl); }
   else if (name === 'queue-next') queueTrackNext(id);
