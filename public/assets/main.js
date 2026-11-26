@@ -400,30 +400,19 @@ async function addFilesNow(fileList) {
     return;
   }
 
-  const files = selected.filter(file => file.size > 0 && file.size <= 512 * 1024 * 1024);
-  const alreadyUsed = state.tracks.reduce((sum, track) => sum + (Number(track.size) || 0), 0);
-  const remainingBytes = Math.max(0, 2 * 1024 * 1024 * 1024 - alreadyUsed);
-  let plannedBytes = 0;
-  const boundedFiles = files.filter(file => {
-    if (plannedBytes + file.size > remainingBytes) return false;
-    plannedBytes += file.size;
-    return true;
-  });
-  const rejected = selected.length - boundedFiles.length;
-
-  if (state.tracks.length + boundedFiles.length > 5000) {
-    toast(desktopRuntime
-      ? 'Лимит Desktop Edition — 5000 треков в медиатеке.'
-      : 'Лимит Web Edition — 5000 треков в одной сессии.');
-    return;
-  }
-
+  let currentBytes = state.tracks.reduce((sum, track) => sum + (Number(track.size) || 0), 0);
   let added = 0;
   let duplicates = 0;
+  let rejected = 0;
   let failed = 0;
   const existing = new Set(state.tracks.map(track => track.id));
 
-  for (const file of boundedFiles) {
+  for (const file of selected) {
+    if (file.size <= 0 || file.size > 512 * 1024 * 1024) {
+      rejected += 1;
+      continue;
+    }
+
     let id;
     try {
       id = await fingerprintFile(file);
@@ -433,9 +422,13 @@ async function addFilesNow(fileList) {
       continue;
     }
 
-    if (existing.has(id) || state.tracks.some(track => track.id === id)) {
+    if (existing.has(id)) {
       duplicates += 1;
-      existing.add(id);
+      continue;
+    }
+
+    if (state.tracks.length >= 5000 || currentBytes + file.size > 2 * 1024 * 1024 * 1024) {
+      rejected += 1;
       continue;
     }
 
@@ -466,6 +459,7 @@ async function addFilesNow(fileList) {
 
     state.tracks.push(track);
     existing.add(id);
+    currentBytes += file.size;
     added += 1;
   }
 
@@ -489,7 +483,9 @@ function getPlaybackQueue() {
 
 async function playTrack(id, queueIds = null) {
   const selected=state.tracks.find(track=>track.id===id);
-  if(selected?.externalUrl){openMusicSource(selected.externalUrl);return;}
+  if(!selected)return;
+  const requestId=playbackRequests.begin();
+  if(selected.externalUrl){openMusicSource(selected.externalUrl);return;}
   const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const requested=Array.isArray(queueIds)?queueIds:getPlaybackQueue();
   const unique=[...new Set(requested.filter(trackId=>available.has(trackId)))];
@@ -502,7 +498,6 @@ async function playTrack(id, queueIds = null) {
   }
   state.playbackIndex=state.playbackQueue.indexOf(id);
   const track=state.tracks.find(item=>item.id===id);if(!track)return;
-  const requestId=playbackRequests.begin();
   try {
     const playable=desktopRuntime&&!track.url?{...track,file:await libraryStore.getFile(id)}:track;
     if(!playbackRequests.isCurrent(requestId))return;
