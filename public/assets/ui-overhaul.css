@@ -133,3 +133,34 @@ button:disabled{cursor:not-allowed;opacity:.6}
 .source-catalog-chip{display:inline-flex;align-items:center;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12px;color:var(--text)}
 .source-catalog-note{margin:12px 0 0;font-size:12px;line-height:1.5}
 #link-result{padding:9px 11px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);line-height:1.45}
+
+
+/* QWEMU MUSIC 1.9.0 — Library Studio / multi-track actions */
+.stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.track-row{grid-template-columns:28px 42px minmax(0,1fr) auto}
+.track-select{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;justify-self:center;align-self:center;border:1px solid #5a5058;border-radius:5px;background:var(--panel2);cursor:pointer;position:relative}
+.track-select:checked{background:linear-gradient(135deg,#e14b48,#ef9456);border-color:#ee8b5b}
+.track-select:checked:after{content:"";position:absolute;left:5px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.track-select:focus-visible{outline:2px solid var(--orange);outline-offset:3px}
+.track-row.is-selected{background:color-mix(in srgb,var(--panel) 84%,#e27652 16%);border-color:#a85b49}
+.bulk-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.bulk-summary{display:flex;align-items:baseline;gap:6px;white-space:nowrap;color:var(--muted);font-size:12px}
+.bulk-summary b{font-size:18px;color:var(--text);font-variant-numeric:tabular-nums}
+.bulk-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.bulk-actions .secondary-button{padding:8px 11px;font-size:12px}
+.bulk-actions .text-button{font-size:12px}
+.bulk-actions .bulk-danger{color:#ff8b84;border-color:#87443f}
+.bulk-actions button:disabled{opacity:.42;cursor:not-allowed;filter:none}
+:root[data-theme="light"] .track-select{background:#fff;border-color:#b7aab0}
+:root[data-theme="light"] .bulk-toolbar{background:#fff}
+@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.track-row{grid-template-columns:26px 38px minmax(0,1fr) auto}}
+@media(max-width:700px){
+  .stats-grid .stat-card:last-child{grid-column:auto}
+  .bulk-toolbar{align-items:flex-start;flex-direction:column}
+  .bulk-actions{width:100%;justify-content:flex-start}
+  .bulk-actions button{flex:1 1 auto}
+  .track-row{grid-template-columns:24px 34px minmax(0,1fr);gap:7px}
+  .track-row .row-actions{grid-column:1/-1}
+  .track-select{width:17px;height:17px}
+}
+@media(prefers-reduced-motion:reduce){.track-row.is-selected{transition:none}}
