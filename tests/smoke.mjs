@@ -132,5 +132,5 @@ assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "2" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
 
-assert.equal(JSON.parse(read('package.json')).version, '1.6.0');
-console.log('QWEMU Desktop 1.6.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
+assert.equal(JSON.parse(read('package.json')).version, '1.7.0');
+console.log('QWEMU Desktop 1.7.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
