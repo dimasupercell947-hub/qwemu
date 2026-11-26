@@ -32,3 +32,20 @@ button:disabled{cursor:not-allowed;opacity:.6}
 /* Keep the extra visualization row within the fixed player height. */
 .player{height:100px;padding:11px 22px}body{padding-bottom:100px}.sidebar{height:calc(100vh - 100px)}.app-shell{min-height:calc(100vh - 100px)}.transport{grid-template-rows:20px 32px 20px;gap:2px}.qwemu-wave{height:20px}
 @media(max-width:700px){.player{height:140px;padding:9px 13px}.transport{grid-template-rows:1fr 24px;gap:4px 8px}.qwemu-wave{height:24px}}
+
+/* QWEMU MUSIC 1.6.0 — playback and collection tools */
+.library-toolbar,.queue-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 18px}
+.library-toolbar{justify-content:space-between}
+.sort-control{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px}
+.sort-control select{min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text)}
+.track-row.is-playing{background:color-mix(in srgb,var(--panel) 78%,#d94b42 22%);border-color:#a94b45}
+.track-row.is-playing .track-thumb{background:var(--accent);color:#fff}
+.row-actions{flex-wrap:wrap;justify-content:flex-end}
+.row-actions .small-button{min-width:32px;min-height:32px;padding:5px 8px}
+.queue-toolbar .active{border-color:var(--orange);color:var(--orange)}
+#track-dialog .dialog-content{gap:12px}
+#track-dialog .hero-actions{justify-content:flex-end;margin-top:4px}
+#track-dialog .hero-actions button{min-width:100px}
+@media(max-width:1100px){.track-row{grid-template-columns:38px minmax(0,1fr) minmax(150px,auto);gap:8px}.row-actions{gap:4px}.row-actions .small-button{min-width:29px;min-height:29px;padding:4px 6px}}
+@media(max-width:700px){.library-toolbar,.queue-toolbar{width:100%;justify-content:space-between}.queue-toolbar button,.queue-toolbar .file-label{flex:1;justify-content:center}.sort-control{width:100%;justify-content:space-between}.sort-control select{flex:1;min-width:0}.track-row{grid-template-columns:34px minmax(0,1fr);gap:8px}.row-actions{grid-column:1/-1;justify-content:flex-end}.row-actions .small-button{min-width:32px;min-height:30px}}
+@media(prefers-reduced-motion:reduce){.track-row.is-playing{transition:none}}
