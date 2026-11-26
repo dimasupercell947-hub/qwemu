@@ -161,16 +161,30 @@ export class LibraryStore {
     });
   }
 
-  async remove(id) {
-    if (typeof id !== 'string' || !id) throw new TypeError('Для удаления нужен идентификатор трека.');
+  async removeMany(ids) {
+    if (!Array.isArray(ids) || ids.length > 5000 || ids.some(id => typeof id !== 'string' || !id.trim())) {
+      throw new TypeError('Для пакетного удаления нужен список допустимых ID треков (не более 5000).');
+    }
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return 0;
     const db = await this.open();
     await new Promise((resolve, reject) => {
       const tx = db.transaction([TRACKS, AUDIO], 'readwrite');
-      tx.objectStore(TRACKS).delete(id);
-      tx.objectStore(AUDIO).delete(id);
+      const metadata = tx.objectStore(TRACKS);
+      const audio = tx.objectStore(AUDIO);
+      for (const id of uniqueIds) {
+        metadata.delete(id);
+        audio.delete(id);
+      }
       tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error || new Error('Не удалось удалить трек из медиатеки.'));
-      tx.onabort = () => reject(tx.error || new Error('Удаление трека было отменено.'));
+      tx.onerror = () => reject(tx.error || new Error('Не удалось пакетно удалить записи медиатеки.'));
+      tx.onabort = () => reject(tx.error || new Error('Пакетное удаление медиатеки было отменено.'));
     });
+    return uniqueIds.length;
+  }
+
+  async remove(id) {
+    if (typeof id !== 'string' || !id.trim()) throw new TypeError('Для удаления нужен идентификатор трека.');
+    return this.removeMany([id]);
   }
 }
