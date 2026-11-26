@@ -54,22 +54,52 @@ export class LibraryStore {
   }
 
   async putLink(track) {
-    if (!track || typeof track.id !== 'string' || !track.id) throw new TypeError('У ссылки должен быть ID.');
-    const value=track.url||track.externalUrl;
-    const classification=classifyMusicUrl(value);
-    if(!classification.ok)throw new TypeError(classification.reason||'Ссылка не прошла проверку.');
-    if(track.url&&classification.kind!=='direct-audio')throw new TypeError('Поток должен быть прямым аудиофайлом.');
-    if(track.externalUrl&&classification.kind!=='music-site')throw new TypeError('Закладка должна вести на распознанный музыкальный сайт.');
-    const metadata={id:track.id,name:String(track.name||track.title||'Music link').slice(0,240),title:String(track.title||'Music link').trim().slice(0,160),artist:String(track.artist||'').trim().slice(0,120),album:String(track.album||'Added from link').trim().slice(0,120),lyrics:String(track.lyrics||'').slice(0,100000),type:'link',size:0,lastModified:0,duration:0,addedAt:Number(track.addedAt)||Date.now()};
-    if(classification.kind==='direct-audio')metadata.url=classification.url;
-    else metadata.externalUrl=classification.url;
-    const db=await this.open();
-    await new Promise((resolve,reject)=>{
-      const tx=db.transaction(TRACKS,'readwrite');
+    if (!track || typeof track.id !== 'string' || !track.id) {
+      throw new TypeError('У ссылки должен быть ID.');
+    }
+    if (Boolean(track.url) === Boolean(track.externalUrl)) {
+      throw new TypeError('Укажи ровно один источник: прямой аудиопоток или музыкальный сайт.');
+    }
+
+    const value = track.url || track.externalUrl;
+    const classification = classifyMusicUrl(value);
+    if (!classification.ok) {
+      throw new TypeError(classification.reason || 'Ссылка не прошла проверку.');
+    }
+    if (track.url && classification.kind !== 'direct-audio') {
+      throw new TypeError('Поток должен быть прямым аудиофайлом.');
+    }
+    if (track.externalUrl && classification.kind !== 'music-site') {
+      throw new TypeError('Закладка должна вести на распознанный музыкальный сайт.');
+    }
+
+    const metadata = {
+      id: track.id,
+      name: String(track.name || track.title || 'Music link').trim().slice(0, 240),
+      title: String(track.title || 'Music link').trim().slice(0, 160),
+      artist: String(track.artist || '').trim().slice(0, 120),
+      album: String(track.album || 'Added from link').trim().slice(0, 120),
+      lyrics: String(track.lyrics || '').slice(0, 100000),
+      type: 'link',
+      providerId: classification.serviceId,
+      providerName: classification.serviceName,
+      linkKind: classification.kind,
+      size: 0,
+      lastModified: 0,
+      duration: 0,
+      addedAt: Number(track.addedAt) || Date.now()
+    };
+
+    if (classification.kind === 'direct-audio') metadata.url = classification.url;
+    else metadata.externalUrl = classification.url;
+
+    const db = await this.open();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(TRACKS, 'readwrite');
       tx.objectStore(TRACKS).put(metadata);
-      tx.oncomplete=()=>resolve(true);
-      tx.onerror=()=>reject(tx.error||new Error('Не удалось сохранить ссылку.'));
-      tx.onabort=()=>reject(tx.error||new Error('Сохранение ссылки отменено.'));
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Не удалось сохранить ссылку.'));
+      tx.onabort = () => reject(tx.error || new Error('Сохранение ссылки отменено.'));
     });
   }
 
