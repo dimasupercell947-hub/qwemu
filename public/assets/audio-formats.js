@@ -1,0 +1,6 @@
+export const AUDIO_FORMATS=Object.freeze([{extension:'mp3',mime:'audio/mpeg',label:'MP3'},{extension:'wav',mime:'audio/wav',label:'WAV'},{extension:'flac',mime:'audio/flac',label:'FLAC'},{extension:'ogg',mime:'audio/ogg',label:'OGG'},{extension:'oga',mime:'audio/ogg',label:'OGA'},{extension:'m4a',mime:'audio/mp4',label:'M4A / AAC / ALAC'},{extension:'aac',mime:'audio/aac',label:'AAC'},{extension:'opus',mime:'audio/ogg; codecs=opus',label:'OPUS'},{extension:'webm',mime:'audio/webm',label:'WEBM audio'},{extension:'mp4',mime:'audio/mp4',label:'MP4 audio'},{extension:'3gp',mime:'audio/3gpp',label:'3GP'},{extension:'m4b',mime:'audio/mp4',label:'M4B audiobook'}]);
+export const AUDIO_EXTENSIONS=AUDIO_FORMATS.map(item=>item.extension);
+export const AUDIO_ACCEPT=AUDIO_EXTENSIONS.map(ext=>'.'+ext).join(',');
+export function audioFileExtension(fileName){const match=String(fileName??'').toLowerCase().match(/\.([a-z0-9]+)$/);return match?.[1]||'';}
+export function supportsAudioFile(file){return Boolean(file&&AUDIO_EXTENSIONS.includes(audioFileExtension(file.name)));}
+export function canPlayFormat(audioElement,extension){if(!audioElement||!extension)return false;const format=AUDIO_FORMATS.find(item=>item.extension===extension.toLowerCase());if(!format)return false;try{return audioElement.canPlayType(format.mime)!=='';}catch{return false;}}
