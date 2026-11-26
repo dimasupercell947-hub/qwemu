@@ -15,6 +15,8 @@ const required = [
   'public/assets/playback-queue.js',
   'public/assets/playback-request.js',
   'public/assets/serial-task-queue.js',
+  'public/assets/selection-state.js',
+  'tests/selection-state.test.mjs',
   'public/assets/history-state.js',
   'public/assets/track-sort.js',
   'public/assets/playlist-io.js',
@@ -43,7 +45,7 @@ for (const path of required) {
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.8.0');
+assert.equal(config.version, '1.9.0');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
@@ -69,6 +71,11 @@ for (const feature of [
   'buildPlaybackQueue',
   'new PlaybackRequestGate',
   'new SerialTaskQueue',
+  'selectedTrackIds',
+  'function addSelectedTracksToQueue',
+  'function addSelectedTracksToPlaylist',
+  'function exportSelectedTracks',
+  'function deleteSelectedTracks',
   'state.playbackQueue',
   'function queueTrackNext',
   'function toggleShuffle',
@@ -107,8 +114,10 @@ assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should b
 
 assert.ok(read('public/assets/library-store.js').includes('indexedDB.open'));
 assert.ok(read('public/assets/library-store.js').includes('updateMetadata'));
+assert.ok(read('public/assets/library-store.js').includes('removeMany'));
 assert.ok(read('public/assets/library-store.js').includes('putLink'));
 assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
+assert.ok(read('public/assets/selection-state.js').includes('toggleVisibleSelection'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
 assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
 assert.ok(read('public/assets/music-url.js').includes('yandex-music'));
@@ -141,9 +150,9 @@ assert.ok(read('build.bat').includes('NSIS installer was not created'));
 assert.ok(read('build.bat').includes('MSI installer was not created'));
 assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "=2.12.7" }'));
-assert.ok(read('src-tauri/Cargo.toml').includes('version = "1.8.0"'));
+assert.ok(read('src-tauri/Cargo.toml').includes('version = "1.9.0"'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
 
-assert.equal(JSON.parse(read('package.json')).version, '1.8.0');
-assert.ok(read('public/index.html').includes('DESKTOP EDITION · 1.8.0'));
-console.log('QWEMU Desktop 1.8.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
+assert.equal(JSON.parse(read('package.json')).version, '1.9.0');
+assert.ok(read('public/index.html').includes('DESKTOP EDITION · 1.9.0'));
+console.log('QWEMU Desktop 1.9.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
