@@ -40,7 +40,7 @@ for (const path of required) {
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.6.0');
+assert.equal(config.version, '1.7.0');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
