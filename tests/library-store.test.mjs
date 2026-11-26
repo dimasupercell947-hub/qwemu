@@ -93,11 +93,14 @@ test('LibraryStore persists metadata and audio, and deletes both atomically', as
     const audio = new Blob(['test'], { type: 'audio/mpeg' });
 
     await store.put(track, audio);
+    await store.updateMetadata({ ...track, title: 'Edited title', artist: 'New artist', album: 'New album' });
 
     const rows = await store.list();
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, track.id);
-    assert.equal(rows[0].title, track.title);
+    assert.equal(rows[0].title, 'Edited title');
+    assert.equal(rows[0].artist, 'New artist');
+    assert.equal(rows[0].album, 'New album');
 
     const restored = await store.getFile(track.id);
     assert.ok(restored instanceof Blob);
