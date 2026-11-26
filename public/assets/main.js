@@ -1269,13 +1269,13 @@ document.addEventListener('keydown', event => {
     if(state.selectedTrackIds.size){clearTrackSelection();return;}
     return;
   }
+  if(editing||event.altKey)return;
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'&&(['library','favorites','queue','history'].includes(state.page)||(state.page==='playlists'&&state.activePlaylist))){
     event.preventDefault();
     state.selectedTrackIds = toggleVisibleSelection(new Set(), visibleTracks().map(track => track.id));
     render();
     return;
   }
-  if(editing||event.altKey)return;
   if(event.code==='Space'){
     event.preventDefault();
     if(!state.currentId){const q=getPlaybackQueue();if(q.length)playTrack(q[0],q);}
