@@ -239,12 +239,15 @@ function render() {
   const current = state.tracks.find(track => track.id === state.currentId);
   $('#player-title').textContent = current?.title || 'Ничего не воспроизводится';
   $('#player-artist').textContent = current?.artist || 'Добавь аудиофайлы из своей коллекции';
-  $('#cover').textContent = current ? '♫' : 'Q';
-  $('#play').textContent = audio.getStatus().playing ? 'Ⅱ' : '▶';
+  $('#cover').textContent = '';
+  $('#cover').style.backgroundImage = "url('./assets/qwemu-logo.png')";
+  $('#play').innerHTML = audio.getStatus().playing ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM15 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+  $('#play').classList.toggle('playing',audio.getStatus().playing);
   const repeatLabels={off:'Повтор выключен',all:'Повтор плейлиста',one:'Повтор текущего трека'};
-  $('#repeat').classList.toggle('active',state.repeatMode!=='off');$('#repeat').dataset.mode=state.repeatMode;$('#repeat').title=repeatLabels[state.repeatMode];$('#repeat').setAttribute('aria-label',repeatLabels[state.repeatMode]);$('#repeat').textContent=state.repeatMode==='one'?'↻¹':'↻';
-  $('#shuffle').classList.toggle('active',state.shuffle);$('#shuffle').setAttribute('aria-pressed',String(state.shuffle));$('#shuffle').setAttribute('aria-label',state.shuffle?'Выключить перемешивание':'Включить перемешивание');
+  $('#repeat').classList.toggle('active',state.repeatMode!=='off');$('#repeat').dataset.mode=state.repeatMode;$('#repeat').title=repeatLabels[state.repeatMode];$('#repeat').setAttribute('aria-label',repeatLabels[state.repeatMode]);$('#repeat').innerHTML=state.repeatMode==='one'?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a8 8 0 1 1 2 9"/><path d="M4 4v4h4M12 7v6l4 2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a8 8 0 1 1 2 9"/><path d="M4 4v4h4"/></svg>';
+  $('#shuffle').classList.toggle('active',state.shuffle);$('#shuffle').setAttribute('aria-pressed',String(state.shuffle));$('#shuffle').setAttribute('aria-label',state.shuffle?'Выключить перемешивание':'Включить перемешивание');$('#shuffle').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h2.5a4 4 0 0 1 3.2 1.6l6.6 9.8A4 4 0 0 0 18.5 18H21m-4-4 4 4-4 4M3 19h2.5a4 4 0 0 0 3.2-1.6l2-3M14 7l1.3-1.4A4 4 0 0 1 18.5 5H21m-4-4 4 4-4 4"/></svg>';
   $('#play').setAttribute('aria-label', audio.getStatus().playing ? 'Пауза' : 'Воспроизвести');
+  renderLyricsPanel();updateMediaSession(current);
 }
 function setPage(page) {
   if (!['home','library','playlists','favorites','queue','history','settings','profile'].includes(page)) return;
@@ -632,6 +635,16 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]'); if (!action) return;
   const { action: name, id, key } = action.dataset;
   if (name === 'play-track') await playTrack(id);
+  else if (name === 'open-link-dialog') openLinkDialog();
+  else if (name === 'link-preview') previewMusicLink();
+  else if (name === 'add-link') await addMusicLink();
+  else if (name === 'plus-demo') showPlusDemo();
+  else if (name === 'check-updates') await checkForUpdates();
+  else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;renderLyricsPanel(); }
+  else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.currentId=id;state.lyricsOpen=true;renderLyricsPanel();} }
+  else if (name === 'lyrics-close') { state.lyricsOpen=false;renderLyricsPanel(); }
+  else if (name === 'seek-lyrics') { const seconds=Number(action.dataset.seconds);if(Number.isFinite(seconds))audio.seek(seconds); }
+  else if (name === 'open-source') { const track=state.tracks.find(item=>item.id===id);if(track?.externalUrl)openMusicSource(track.externalUrl); }
   else if (name === 'queue-next') queueTrackNext(id);
   else if (name === 'queue-remove') removeQueuedTrack(id);
   else if (name === 'edit-track') editTrack(id);
@@ -681,6 +694,8 @@ document.addEventListener('change', event => {
 });
 $('#auth-form').addEventListener('submit', submitAuth);
 $('#track-form').addEventListener('submit', saveTrackMetadata);
+$('#link-form').addEventListener('submit',async event=>{event.preventDefault();await addMusicLink();});
+$('#link-url').addEventListener('input',previewMusicLink);
 document.addEventListener('submit', async event => {
   if(event.target.id!=='profile-edit-form')return;event.preventDefault();
   const form=new FormData(event.target);try{state.user=await auth.updateProfile({displayName:String(form.get('displayName')||'').trim(),email:String(form.get('email')||'').trim()});render();toast('Профиль сохранён.');}
@@ -692,6 +707,7 @@ $('#account-button').addEventListener('click', () => {
 });
 $('#search').addEventListener('input', event => { state.search = event.target.value; render(); const input=$('#search'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); });
 $('#stop').addEventListener('click', stopPlayback);
+$('#lyrics-toggle').addEventListener('click',()=>{state.lyricsOpen=!state.lyricsOpen;renderLyricsPanel();});
 $('#repeat').addEventListener('click', toggleRepeat);
 $('#shuffle').addEventListener('click', toggleShuffle);
 $('#play').addEventListener('click', async () => { if (!state.currentId) { const queue=getPlaybackQueue(); if (queue.length) await playTrack(queue[0],queue); return; } if (audio.getStatus().playing) audio.pause(); else await audio.resume().catch(error=>toast(error.message)); render(); });
@@ -700,8 +716,8 @@ $('#seek').addEventListener('input', event => { const duration=audio.getStatus()
 $('#volume').value=String(state.settings.volume); audio.setVolume($('#volume').value);
 $('#volume').addEventListener('input', event => { audio.setVolume(event.target.value); state.settings.volume=Number(event.target.value); state.settingsRevision += 1; saveLocal(); });
 $('#volume').addEventListener('change', () => persistCloud('settings', state.settings));
-$('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('#audio').muted=muted; $('#mute').textContent=muted?'×':'◖))'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
-audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration); });
+$('#mute').addEventListener('click', () => { const muted=!$('#audio').muted; $('#audio').muted=muted; $('#mute').innerHTML=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM17 9l4 6m0-6-4 6"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12"/></svg>'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
+audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration);syncLyricsHighlight(status.position);updateMediaSession(state.tracks.find(track=>track.id===state.currentId)); });
 audio.on('loadedmetadata', () => { const track=state.tracks.find(item=>item.id===state.currentId); if(track)track.duration=audio.getStatus().duration; render(); });
 audio.on('play', render); audio.on('pause', render);
 audio.on('ended', () => { if (state.repeatMode !== 'one') advance(1); });
@@ -725,6 +741,11 @@ document.addEventListener('keydown', event => {
     else if(state.currentId){const status=audio.getStatus();audio.seek(status.position+(event.key==='ArrowLeft'?-5:5));}
   }
 });
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&!state.settings.backgroundPlayback){audio.pause();render();}
+  if(!document.hidden&&audio.getStatus().playing)document.dispatchEvent(new Event('qwemu-foreground'));
+});
+installMediaSessionHandlers();
 window.addEventListener('pagehide', () => { state.playRequestId += 1; audio.destroy(); }, { once: true });
 
 applyTheme(); render();
