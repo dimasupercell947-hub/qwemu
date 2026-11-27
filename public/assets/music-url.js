@@ -48,7 +48,7 @@ function normalizeInput(input) {
 }
 
 function isPublicHostname(hostname) {
-  const value = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const value = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (!value || value === 'localhost') return false;
   if (/\.(?:localhost|local|internal|lan|home|test)$/i.test(value)) return false;
   // IP literals are deliberately not accepted. This avoids linking to local

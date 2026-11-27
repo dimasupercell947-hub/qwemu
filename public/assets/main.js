@@ -18,7 +18,7 @@ import { toggleSelection, toggleVisibleSelection, selectedInOrder } from './sele
 import { createBackup, parseBackup, serializeBackup, mergeBackupCollections } from './backup-state.js';
 import { buildBulkQueueUpdate, resolveTransportQueue, resolveResumeQueue, shuffleUpcomingQueue, restoreUnshuffledQueue } from './queue-state.js';
 import { createPlaybackSnapshot, restorePlaybackSnapshot } from './playback-state.js';
-import { compareStableVersions, parseStableVersion } from './version-state.js';
+import { parseStableVersion } from './version-state.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
@@ -27,8 +27,8 @@ const playbackRequests = new PlaybackRequestGate();
 const importQueue = new SerialTaskQueue();
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '2.0.0';
 const RELEASES_URL = 'https://github.com/dimasupercell947-hub/qwemu/releases/latest';
-const RELEASES_API_URL = 'https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest';
-const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/public/version.json';
+let availableUpdate = null;
+let updateInstallBusy = false;
 const desktopRuntime = globalThis.QWEMU_DESKTOP === true;
 let libraryReady = !desktopRuntime;
 let libraryRestorePromise = Promise.resolve();
@@ -289,7 +289,7 @@ function pageContent() {
           <div class="backup-actions"><button class="primary-button" data-action="export-backup">Экспортировать копию</button><label class="secondary-button file-label">Импортировать копию<input id="backup-import" type="file" accept=".json,application/json"></label></div>
         </section>
         <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск · <kbd>Ctrl</kbd> + <kbd>A</kbd> — выбрать видимые треки · <kbd>Esc</kbd> — снять выделение.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
-        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Версия проверяется автоматически при запуске и вручную. Скачивание доступно только через официальный GitHub Releases; скрытая установка не выполняется.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и обновление приложения</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Приложение автоматически проверяет стабильные обновления. Установка запускается только после твоего подтверждения; загружаемый пакет проверяется цифровой подписью.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
         <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
@@ -1146,27 +1146,23 @@ function installMediaSessionHandlers(){
   };
   for(const [action,handler] of Object.entries(handlers))try{navigator.mediaSession.setActionHandler(action,handler);}catch{}
 }
-async function fetchUpdateDocument(url) {
-  if (url !== UPDATE_MANIFEST_URL && url !== RELEASES_API_URL) throw new TypeError('Недоверенный источник обновлений.');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/vnd.github+json' },
-      cache: 'no-store',
-      credentials: 'omit',
-      redirect: 'error',
-      signal: controller.signal
-    });
-    if (!response.ok) throw new Error('GitHub вернул HTTP ' + response.status + '.');
-    const finalUrl = response.url ? new URL(response.url) : new URL(url);
-    if (finalUrl.origin !== new URL(url).origin) throw new Error('Источник обновлений перенаправил запрос на другой домен.');
-    const body = await response.text();
-    if (new Blob([body]).size > 65536) throw new RangeError('Ответ сервера обновлений слишком большой.');
-    return JSON.parse(body);
-  } finally {
-    clearTimeout(timeout);
-  }
+function invokeDesktopCommand(command, args) {
+  const invoke = globalThis.__TAURI__?.core?.invoke;
+  if (!desktopRuntime || typeof invoke !== 'function') throw new Error('Встроенное обновление доступно только в установленной версии QWEMU MUSIC Desktop.');
+  return invoke(command, args);
+}
+function formatUpdateBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return bytes + ' Б';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+}
+function setUpdateStatus(message) {
+  state.updateStatus = message;
+  const status = $('#update-status');
+  if (status) status.textContent = message;
+  const description = $('#update-notice .update-notice-description');
+  if (description && updateInstallBusy) description.textContent = message;
 }
 function showUpdateNotice(version) {
   const host = document.querySelector('.main-area');
@@ -1184,61 +1180,105 @@ function showUpdateNotice(version) {
     const description = document.createElement('span');
     description.className = 'update-notice-description';
     copy.append(title, description);
+    const progress = document.createElement('span');
+    progress.className = 'update-notice-progress';
+    progress.setAttribute('aria-live', 'polite');
     const actions = document.createElement('div');
     actions.className = 'update-notice-actions';
-    const download = document.createElement('a');
-    download.className = 'update-notice-download';
-    download.href = RELEASES_URL;
-    download.target = '_blank';
-    download.rel = 'noopener noreferrer';
-    download.textContent = 'Открыть релиз';
+    const install = document.createElement('button');
+    install.className = 'update-notice-download';
+    install.type = 'button';
+    install.dataset.action = 'install-update';
+    install.textContent = 'Скачать и установить';
+    const release = document.createElement('a');
+    release.className = 'update-notice-release';
+    release.href = RELEASES_URL;
+    release.target = '_blank';
+    release.rel = 'noopener noreferrer';
+    release.textContent = 'Сведения о релизе';
     const dismiss = document.createElement('button');
     dismiss.className = 'update-notice-dismiss';
     dismiss.type = 'button';
     dismiss.dataset.action = 'dismiss-update';
     dismiss.setAttribute('aria-label', 'Скрыть уведомление об обновлении');
     dismiss.textContent = '×';
-    actions.append(download, dismiss);
-    notice.append(copy, actions);
+    actions.append(install, release, dismiss);
+    notice.append(copy, progress, actions);
     host.insertBefore(notice, $('#view'));
   }
   notice.querySelector('.update-notice-title').textContent = 'Доступно обновление ' + version;
-  notice.querySelector('.update-notice-description').textContent = 'Новая стабильная версия QWEMU MUSIC опубликована на GitHub.';
+  notice.querySelector('.update-notice-description').textContent = 'Можно загрузить и установить обновление прямо из QWEMU MUSIC.';
+  const install = notice.querySelector('[data-action="install-update"]');
+  if (install) {
+    install.disabled = updateInstallBusy;
+    install.textContent = updateInstallBusy ? 'Установка…' : 'Скачать и установить';
+  }
 }
 async function checkForUpdates({ silent = false } = {}) {
-  const status = $('#update-status');
-  if (status) status.textContent = 'Проверяем опубликованные стабильные версии…';
+  if (updateInstallBusy) return { available: Boolean(availableUpdate), version: availableUpdate?.version ?? null };
+  setUpdateStatus('Проверяем подписанные стабильные обновления…');
   try {
-    const sources = await Promise.allSettled([
-      fetchUpdateDocument(UPDATE_MANIFEST_URL).then(data => ({ version: parseStableVersion(data.version), source: 'манифест' })),
-      fetchUpdateDocument(RELEASES_API_URL).then(data => ({ version: parseStableVersion(String(data.tag_name || '').replace(/^v/i, '')), source: 'GitHub Releases' }))
-    ]);
-    const candidates = sources.filter(item => item.status === 'fulfilled').map(item => item.value);
-    if (!candidates.length) {
-      const reason = sources.find(item => item.status === 'rejected')?.reason;
-      throw reason instanceof Error ? reason : new Error('Оба источника обновлений недоступны.');
-    }
-    candidates.sort((left, right) => compareStableVersions(right.version, left.version));
-    const latest = candidates[0];
-    const comparison = compareStableVersions(latest.version, APP_VERSION);
-    const latestText = latest.version.join('.');
-    if (comparison > 0) {
-      state.updateStatus = 'Доступна версия ' + latestText + ' (источник: ' + latest.source + '). Установщик откроется на официальной странице релизов.';
-      showUpdateNotice(latestText);
+    const update = await invokeDesktopCommand('check_for_updates');
+    if (update) {
+      parseStableVersion(update.version);
+      availableUpdate = update;
+      setUpdateStatus('Доступна версия ' + update.version + '. Нажми «Скачать и установить», чтобы обновить приложение.');
+      showUpdateNotice(update.version);
     } else {
+      availableUpdate = null;
       $('#update-notice')?.remove();
-      state.updateStatus = comparison === 0
-        ? 'Установлена актуальная версия ' + APP_VERSION + '. Проверено: ' + latest.source + '.'
-        : 'Установлена версия ' + APP_VERSION + '. Публичная стабильная версия пока не новее установленной (' + latestText + ').';
+      setUpdateStatus('Установлена актуальная версия ' + APP_VERSION + '.');
     }
-    if (status) status.textContent = state.updateStatus;
     if (!silent) toast(state.updateStatus);
-    return { available: comparison > 0, version: latestText };
+    return { available: Boolean(update), version: update?.version ?? APP_VERSION };
   } catch (error) {
-    state.updateStatus = 'Не удалось проверить обновления: ' + (error?.message || error);
-    if (status) status.textContent = state.updateStatus;
+    setUpdateStatus('Не удалось проверить обновления: ' + (error?.message || String(error)));
     if (!silent) toast(state.updateStatus);
     return { available: false, error };
+  }
+}
+async function installAvailableUpdate() {
+  if (updateInstallBusy) return;
+  let unlisten = null;
+  try {
+    if (!availableUpdate) await checkForUpdates({ silent: true });
+    if (!availableUpdate) return;
+    const update = availableUpdate;
+    parseStableVersion(update.version);
+    updateInstallBusy = true;
+    showUpdateNotice(update.version);
+    setUpdateStatus('Подготавливаем обновление ' + update.version + ' и проверяем его подпись…');
+    const eventApi = globalThis.__TAURI__?.event;
+    if (typeof eventApi?.listen === 'function') {
+      try {
+        unlisten = await eventApi.listen('qwemu-updater-progress', event => {
+          const payload = event?.payload || {};
+          const downloaded = Number(payload.downloadedBytes) || 0;
+          const total = Number(payload.totalBytes) || 0;
+          const percent = total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : null;
+          const progressText = percent === null
+            ? 'Загружено ' + formatUpdateBytes(downloaded)
+            : 'Загрузка обновления: ' + percent + '% (' + formatUpdateBytes(downloaded) + ' из ' + formatUpdateBytes(total) + ')';
+          const progressNode = $('#update-notice .update-notice-progress');
+          if (progressNode) progressNode.textContent = progressText;
+          setUpdateStatus(progressText);
+        });
+      } catch { unlisten = null; }
+    }
+    setUpdateStatus('Загружаем обновление ' + update.version + '…');
+    await invokeDesktopCommand('install_update', { expectedVersion: update.version });
+    setUpdateStatus('Установщик запущен. Дождись завершения установки и снова открой QWEMU MUSIC.');
+  } catch (error) {
+    setUpdateStatus('Установка обновления не выполнена: ' + (error?.message || String(error)));
+    toast(state.updateStatus);
+  } finally {
+    if (typeof unlisten === 'function') unlisten();
+    updateInstallBusy = false;
+    const install = $('#update-notice [data-action="install-update"]');
+    if (install) {
+      install.disabled = false;
+      install.textContent = 'Повторить установку';
+    }
   }
 }
 
@@ -1428,6 +1468,7 @@ document.addEventListener('click', async event => {
   else if (name === 'add-link') await addMusicLink();
   else if (name === 'plus-demo') showPlusDemo();
   else if (name === 'check-updates') await checkForUpdates({ silent: false });
+  else if (name === 'install-update') await installAvailableUpdate();
   else if (name === 'dismiss-update') $('#update-notice')?.remove();
   else if (name === 'resume-session') await resumePlayback();
   else if (name === 'clear-resume') { clearSavedResume(); state.playbackQueue = []; state.shuffleBackup = []; render(); toast('Сохранённая сессия сброшена.'); }

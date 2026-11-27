@@ -42,6 +42,8 @@ const required = [
   'src-tauri/src/lib.rs',
   'src-tauri/src/main.rs',
   'src-tauri/tauri.conf.json',
+  'src-tauri/tauri.updater.conf.json',
+  'scripts/create-updater-manifest.ps1',
   'src-tauri/capabilities/default.json',
   'src-tauri/icons/icon.ico',
   'run.bat',
@@ -68,6 +70,12 @@ assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
 assert.ok(config.app.windows.some(window => window.label === 'main' && window.minWidth === 960));
 assert.ok(config.app.security.csp.includes("script-src 'self'"));
 assert.equal(manifest.channel, 'stable');
+assert.equal(manifest.version, packageJson.version, 'Public version manifest must match package version.');
+assert.equal(config.bundle.createUpdaterArtifacts, false, 'Updater artifacts are only signed in the release workflow.');
+assert.equal(config.app.withGlobalTauri, true, 'Static HTML frontend needs Tauri global invoke/event APIs.');
+assert.equal(config.plugins.updater.endpoints[0], 'https://github.com/dimasupercell947-hub/qwemu/releases/latest/download/latest.json');
+assert.equal(config.plugins.updater.windows.installMode, 'passive');
+assert.equal(JSON.parse(read('src-tauri/tauri.updater.conf.json')).bundle.createUpdaterArtifacts, true);
 
 const html = read('public/index.html');
 assert.match(html, /<meta name="app-version" content="2\.0\.0">/);
@@ -106,6 +114,9 @@ for (const feature of [
   'serializeBackup',
   'function importProfileBackup',
   'function checkForUpdates',
+  'function installAvailableUpdate',
+  'invokeDesktopCommand',
+  'qwemu-updater-progress',
   'state.playbackQueue',
   'function queueTrackNext',
   'function toggleShuffle',
@@ -119,8 +130,13 @@ for (const feature of [
 }
 assert.equal((main.match(/async function deleteSelectedTracks\(\)/g) || []).length, 1, 'deleteSelectedTracks must be declared exactly once');
 assert.ok(!/aiff/i.test(main), 'AIFF must not be advertised');
-assert.ok(main.includes('redirect: \'error\''), 'Update requests must reject redirects');
-assert.ok(main.includes('credentials: \'omit\''), 'Update requests must not send credentials');
+assert.ok(main.includes("invokeDesktopCommand('check_for_updates')"), 'The update check must use the native updater.');
+assert.ok(main.includes("invokeDesktopCommand('install_update'"), 'Update installation must be invoked from the app.');
+assert.ok(read('src-tauri/src/lib.rs').includes('tauri_plugin_updater::Builder'), 'The official Tauri updater must be registered.');
+assert.ok(read('src-tauri/src/lib.rs').includes('download_and_install'), 'The native update command must install the verified bundle.');
+assert.ok(read('.github/workflows/release.yml').includes('TAURI_SIGNING_PRIVATE_KEY'), 'Release builds must require a private signing key.');
+assert.ok(read('.github/workflows/release.yml').includes('latest.json'), 'Releases must publish the updater manifest.');
+assert.ok(read('scripts/create-updater-manifest.ps1').includes('.sig'), 'Updater manifest must include the signed EXE signature.');
 assert.ok(!main.includes("' + newCount"), 'Bulk queue feedback must use the queue planner result');
 
 const eq = read('public/assets/eq.js');
