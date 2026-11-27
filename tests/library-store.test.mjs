@@ -164,5 +164,7 @@ test('LibraryStore persists Openverse stream URL and Creative Commons attributio
     assert.equal(saved.licenseUrl, track.licenseUrl);
     assert.equal(saved.attribution, track.attribution);
     assert.equal(saved.providerId, 'openverse');
+    assert.equal(saved.size, track.size);
+    assert.equal(saved.duration, track.duration);
   } finally { globalThis.indexedDB = original; }
 });
