@@ -11,6 +11,8 @@ const required = [
   'public/index.html',
   'public/version.json',
   'public/assets/main.js',
+  'public/assets/plus-search.js',
+  'tests/plus-search.test.mjs',
   'public/assets/library-store.js',
   'public/assets/desktop-bridge.js',
   'public/assets/playback-queue.js',
@@ -61,16 +63,16 @@ const manifest = JSON.parse(read('public/version.json'));
 const cargo = read('src-tauri/Cargo.toml');
 const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '2.0.1');
-assert.equal(packageJson.version, '2.0.1');
-assert.equal(cargoVersion, '2.0.1');
+assert.equal(config.version, '2.0.2');
+assert.equal(packageJson.version, '2.0.2');
+assert.equal(cargoVersion, '2.0.2');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
 assert.ok(config.app.windows.some(window => window.label === 'main' && window.minWidth === 960));
 assert.ok(config.app.security.csp.includes("script-src 'self'"));
 assert.equal(manifest.channel, 'stable');
-assert.equal(manifest.version, packageJson.version, 'Public version manifest must match package version.');
+assert.ok(manifest.version && manifest.tag === 'v' + manifest.version, 'Public version manifest must identify its currently published release.');
 assert.equal(config.bundle.createUpdaterArtifacts, false, 'Updater artifacts are only signed in the release workflow.');
 assert.equal(config.app.withGlobalTauri, true, 'Static HTML frontend needs Tauri global invoke/event APIs.');
 assert.equal(config.plugins.updater.endpoints[0], 'https://github.com/dimasupercell947-hub/qwemu/releases/latest/download/latest.json');
@@ -78,7 +80,7 @@ assert.equal(config.plugins.updater.windows.installMode, 'passive');
 assert.equal(JSON.parse(read('src-tauri/tauri.updater.conf.json')).bundle.createUpdaterArtifacts, true);
 
 const html = read('public/index.html');
-assert.match(html, /<meta name="app-version" content="2\.0\.1">/);
+assert.match(html, /<meta name="app-version" content="2\.0\.2">/);
 assert.ok(html.includes('id="app-version-label"'));
 assert.ok(html.includes('assets/desktop-bridge.js'));
 assert.ok(html.includes('assets/eq.js'));
@@ -113,6 +115,9 @@ for (const feature of [
   'function exportProfileBackup',
   'serializeBackup',
   'function importProfileBackup',
+  'function searchPlusMusic',
+  'function renderPlusPage',
+  'download_openverse_audio',
   'function checkForUpdates',
   'function installAvailableUpdate',
   'invokeDesktopCommand',
@@ -183,6 +188,9 @@ assert.ok(read('public/assets/backup-state.js').includes('export function serial
 assert.ok(main.includes('serializeBackup(backup)'));
 assert.ok(read('public/assets/backup-state.js').includes('normalizeEqSettings(eqSettings)'));
 assert.ok(read('public/assets/eq.js').includes('window.QWEMU_EQ_API = Object.freeze'));
+assert.ok(read('public/assets/plus-search.js').includes('license_type'));
+assert.ok(html.includes('data-page="plus"'));
+assert.ok(config.app.security.csp.includes('https://api.openverse.org'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
 assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
 assert.ok(read('public/assets/music-url.js').includes('yandex-music'));
@@ -216,6 +224,6 @@ assert.ok(read('build.bat').includes('MSI installer was not created'));
 assert.ok(read('check.bat').includes('Node.js 22 or newer'));
 assert.ok(cargo.includes('tauri = { version = "=2.12.7" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
-assert.ok(read('.github/workflows/ci.yml').includes('QWEMU-MUSIC-Windows-2.0.1'));
+assert.ok(read('.github/workflows/ci.yml').includes('QWEMU-MUSIC-Windows-2.0.2'));
 assert.ok(read('.github/workflows/release.yml').includes('Refresh public update manifest'));
-console.log('QWEMU Desktop 2.0.1 smoke passed: ' + required.length + ' required files, 10-band EQ, player, library, backup/restore, session recovery, strict updater, CSP, Tauri and Windows build configuration.');
+console.log('QWEMU Desktop 2.0.2 smoke passed: ' + required.length + ' required files, 10-band EQ, player, library, backup/restore, session recovery, strict updater, CSP, Tauri and Windows build configuration.');

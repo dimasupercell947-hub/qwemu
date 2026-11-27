@@ -205,3 +205,31 @@ button:disabled{cursor:not-allowed;opacity:.6}
 .update-notice-release:hover{text-decoration:underline;color:var(--text)}
 .update-notice-dismiss{margin-left:auto;width:32px;height:32px;border:0;border-radius:9px;background:rgba(255,255,255,.07);color:var(--muted);font-size:20px;cursor:pointer}
 @media(max-width:700px){.update-notice{right:10px;bottom:178px;width:calc(100vw - 20px);padding:14px}}
+
+/* QWEMU PLUS — open-audio catalogue */
+.plus-nav-item{color:#ff9a68!important}.plus-nav-item span{color:#ff9a68}
+.plus-hero{position:relative;overflow:hidden;padding:32px 34px;border:1px solid #63313a;border-radius:22px;background:radial-gradient(520px 260px at 85% 20%,#ef87552b,transparent 70%),linear-gradient(120deg,#30121d,#191316 62%,#211610);box-shadow:0 18px 50px #0003}
+.plus-hero:after{content:"♫";position:absolute;right:40px;top:-44px;font-size:210px;line-height:1;color:#ff9d6811;transform:rotate(-12deg);pointer-events:none}
+.plus-hero h1{position:relative;z-index:1;margin:10px 0;font-size:clamp(34px,5vw,54px);letter-spacing:-1.8px}
+.plus-hero h1 span{background:linear-gradient(105deg,#ff9a68,#e84b4c);background-clip:text;-webkit-background-clip:text;color:transparent}
+.plus-hero p{position:relative;z-index:1;max-width:660px;color:#c6b7ba;line-height:1.6}
+.plus-license-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.plus-license-tags span{font-size:11px;font-weight:750;letter-spacing:.5px;padding:7px 11px;border:1px solid #8a4d47;border-radius:999px;background:#1a1215;color:#ffb08a}
+.plus-search-panel{margin-top:18px;padding:22px}.plus-search-form label{display:block;font-size:12px;font-weight:750;color:#e5d8da;margin-bottom:8px}
+.plus-search-line{display:flex;gap:10px}.plus-search-line input{flex:1;min-width:0;background:#100e11;border:1px solid #49333a;color:var(--text);border-radius:11px;padding:13px 15px;outline:none}
+.plus-search-line input:focus{border-color:#ed8750;box-shadow:0 0 0 3px #ed875022}.plus-search-line button{white-space:nowrap}
+#plus-status{min-height:20px;margin:12px 0 0}.plus-results-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:27px 0 14px}
+.plus-results-head h2{margin:0;font-size:20px}.plus-results-head p{margin:5px 0 0;font-size:12px}
+.plus-results{display:grid;gap:10px}.plus-track{display:grid;grid-template-columns:58px minmax(0,1fr) minmax(155px,auto);align-items:center;gap:15px;padding:15px}
+.plus-track-art{width:58px;height:58px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(145deg,#8c243a,#e27a45);font-size:27px;font-weight:900;box-shadow:0 8px 26px #e15e3b2a}
+.plus-track-info{min-width:0}.plus-track-info .eyebrow{font-size:9px;letter-spacing:1.1px}.plus-track-info h3{margin:6px 0 4px;font-size:15px;white-space:normal;overflow-wrap:anywhere}
+.plus-track-info p{margin:0;color:var(--muted);font-size:12px}.plus-track-links{display:flex;flex-wrap:wrap;gap:13px;margin-top:9px}
+.plus-track-links a{color:#f2a078;text-decoration:none;font-size:11px}.plus-track-links a:hover{text-decoration:underline}
+.plus-track-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:0}.plus-track-actions button{white-space:nowrap;padding:8px 10px;font-size:11px}
+.plus-track-actions [data-action="copy-plus-attribution"]{grid-column:1/-1}.plus-track-actions button:disabled{opacity:.5}
+.plus-more{text-align:center;margin:20px 0}.plus-legal-note{margin-top:24px;color:var(--muted);font-size:11px;line-height:1.6}.plus-empty{margin-top:10px}
+.plus-status-spinner{display:inline-block;width:10px;height:10px;margin-right:8px;border:2px solid #65434a;border-top-color:#ff9868;border-radius:50%;animation:plus-spin .75s linear infinite}
+@keyframes plus-spin{to{transform:rotate(360deg)}}
+@media(max-width:850px){.plus-track{grid-template-columns:48px minmax(0,1fr)}.plus-track-art{width:48px;height:48px}.plus-track-actions{grid-column:1/-1;display:flex;flex-wrap:wrap}.plus-track-actions button{flex:1 1 125px}}
+@media(max-width:600px){.plus-hero{padding:24px 20px}.plus-hero:after{right:5px;top:-22px;font-size:140px}.plus-search-panel{padding:15px}.plus-search-line{flex-direction:column}.plus-search-line button{width:100%}.plus-results-head{align-items:flex-start;flex-direction:column}.plus-track{padding:12px;gap:11px}.plus-track-actions{gap:5px}.plus-track-actions button{flex:1 1 42%}}
+@media(prefers-reduced-motion:reduce){.plus-status-spinner{animation:none}}

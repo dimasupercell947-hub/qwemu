@@ -1,4 +1,5 @@
 import { classifyMusicUrl } from './music-url.js';
+import { isLicensedOpenverseTrack } from './plus-search.js';
 import { normalizeEqSettings } from './eq-state.js';
 
 export const BACKUP_FORMAT = 'qwemu-music-backup';
@@ -27,7 +28,20 @@ function normalizeTrack(track, { exportMode = false, warnings = [] } = {}) {
     addedAt: Number.isFinite(Number(track.addedAt)) ? Math.max(0, Number(track.addedAt)) : 0
   };
   if (track.url && track.externalUrl) throw new TypeError('В резервной копии у одной записи указан более чем один источник.');
-  if (track.url || track.externalUrl) {
+  const openverseTrack = track.providerId === 'openverse' && Boolean(track.url) && isLicensedOpenverseTrack(track);
+  if (openverseTrack) {
+    normalized.url = String(track.url);
+    normalized.openverseId = text(track.openverseId || track.id, 180);
+    normalized.providerId = 'openverse';
+    normalized.providerName = 'Openverse';
+    normalized.linkKind = 'direct-audio';
+    normalized.sourceUrl = String(track.sourceUrl);
+    normalized.licenseCode = text(track.licenseCode, 20).toLowerCase();
+    normalized.licenseVersion = text(track.licenseVersion, 20);
+    normalized.licenseUrl = String(track.licenseUrl);
+    normalized.attribution = text(track.attribution, 1200);
+    normalized.fileType = text(track.fileType, 40);
+  } else if (track.url || track.externalUrl) {
     const source = track.url || track.externalUrl;
     const classified = classifyMusicUrl(source);
     if (!classified.ok) {

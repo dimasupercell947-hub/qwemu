@@ -11,6 +11,7 @@ import { TRACK_SORT_MODES, sortTracks } from './track-sort.js';
 import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
 import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
 import { classifyMusicUrl, titleFromMusicUrl, MUSIC_PLATFORMS } from './music-url.js';
+import { searchOpenverseAudio, isLicensedOpenverseTrack } from './plus-search.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
@@ -28,6 +29,8 @@ const importQueue = new SerialTaskQueue();
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '2.0.0';
 const RELEASES_URL = 'https://github.com/dimasupercell947-hub/qwemu/releases/latest';
 let availableUpdate = null;
+let plusSearchController = null;
+let plusSearchSequence = 0;
 let updateInstallBusy = false;
 const desktopRuntime = globalThis.QWEMU_DESKTOP === true;
 let libraryReady = !desktopRuntime;
@@ -49,7 +52,7 @@ function normalizeSettings(value) {
   return { theme: validThemes.includes(source.theme)?source.theme:'dark-red', volume:Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0.8, reducedMotion:source.reducedMotion===true, backgroundPlayback:source.backgroundPlayback!==false };
 }
 const state = {
-  page: 'home', tracks: [], favorites: Array.isArray(savedFavorites)?savedFavorites.filter(value=>typeof value==='string').slice(0,5000):[],
+  page: 'home', tracks: [], plusQuery: '', plusStatus: 'Найди музыку, которую можно легально использовать и скачать.', plusResults: [], plusPage: 1, plusPageCount: 1, plusResultCount: 0, plusSearching: false, favorites: Array.isArray(savedFavorites)?savedFavorites.filter(value=>typeof value==='string').slice(0,5000):[],
   playlists: Array.isArray(savedPlaylists)?savedPlaylists.filter(item=>item&&typeof item.id==='string'&&typeof item.name==='string'&&Array.isArray(item.trackIds)).slice(0,300):[],
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
@@ -249,7 +252,21 @@ function resumeSessionCard() {
     escapeHtml(track.title) + ' · ' + escapeHtml(track.artist || 'Неизвестный исполнитель') + ' · с ' + formatTime(saved.position) +
     '</span></div><div class="resume-actions"><button class="primary-button" data-action="resume-session">Продолжить</button><button class="text-button" data-action="clear-resume">Сбросить</button></div></section>';
 }
+function renderPlusTrack(item) {
+  const added = state.tracks.some(track => track.openverseId === item.id || track.url === item.url);
+  const licence = item.licenseCode.toUpperCase() + (item.licenseVersion ? ' ' + item.licenseVersion : '');
+  const duration = item.duration ? formatTime(item.duration) : 'длительность неизвестна';
+  return '<article class="plus-track surface"><div class="plus-track-art" aria-hidden="true">♫</div><div class="plus-track-info"><div class="eyebrow">' + escapeHtml(item.provider) + ' · ' + escapeHtml(licence) + '</div><h3>' + escapeHtml(item.title) + '</h3><p>' + escapeHtml(item.creator) + ' · ' + escapeHtml(duration) + '</p><div class="plus-track-links"><a href="' + escapeHtml(item.sourceUrl) + '" target="_blank" rel="noopener noreferrer">Источник</a><a href="' + escapeHtml(item.licenseUrl) + '" target="_blank" rel="noopener noreferrer">Условия лицензии</a></div></div><div class="plus-track-actions"><button class="primary-button" type="button" data-action="play-plus-track" data-id="' + escapeHtml(item.id) + '">Слушать</button><button class="secondary-button" type="button" data-action="add-plus-track" data-id="' + escapeHtml(item.id) + '" ' + (added ? 'disabled' : '') + '>' + (added ? 'В медиатеке' : 'Добавить') + '</button><button class="secondary-button" type="button" data-action="download-plus-track" data-id="' + escapeHtml(item.id) + '" ' + (desktopRuntime ? '' : 'disabled title="Скачивание доступно в приложении QWEMU Desktop"') + '>Скачать</button><button class="text-button" type="button" data-action="copy-plus-attribution" data-id="' + escapeHtml(item.id) + '">Копировать атрибуцию</button></div></article>';
+}
+
+function renderPlusPage() {
+  const rows = state.plusResults.map(renderPlusTrack).join('');
+  const loading = state.plusSearching ? '<span class="plus-status-spinner" aria-hidden="true"></span>' : '';
+  return '<section class="plus-hero"><div class="eyebrow">QWEMU MUSIC · OPEN AUDIO</div><h1>QWEMU <span>PLUS</span></h1><p>Поиск аудио с открытой лицензией. Слушай внутри QWEMU, сохраняй в медиатеку или скачивай файл вместе с атрибуцией автора.</p><div class="plus-license-tags"><span>CC0</span><span>Public Domain</span><span>CC BY</span><span>CC BY-SA</span></div></section><section class="plus-search-panel surface"><form id="plus-search-form" class="plus-search-form"><label for="plus-query">Что ищем?</label><div class="plus-search-line"><input id="plus-query" name="query" type="search" maxlength="200" minlength="2" required placeholder="Исполнитель, название или настроение" value="' + escapeHtml(state.plusQuery) + '"><button class="primary-button" type="submit" ' + (state.plusSearching ? 'disabled' : '') + '>Найти музыку</button></div></form><p id="plus-status" class="muted" role="status">' + loading + escapeHtml(state.plusStatus) + '</p></section><div class="plus-results-head"><div><h2>Открытая музыкальная библиотека</h2><p class="muted">' + (state.plusResultCount ? state.plusResultCount + ' результатов по всему каталогу' : 'Показываются только записи с коммерчески совместимыми открытыми лицензиями') + '</p></div><button class="secondary-button" type="button" data-action="open-link-dialog">Добавить свою аудиоссылку</button></div>' + (rows ? '<div class="plus-results">' + rows + '</div>' : '<div class="empty-state plus-empty"><b>' + (state.plusQuery ? 'Подходящих записей пока нет' : 'Начни поиск музыки') + '</b>' + (state.plusQuery ? 'В каталоге не найдено аудио с поддерживаемой лицензией. Попробуй другое написание или ищи название композиции.' : 'Результаты будут воспроизводиться во встроенном плеере QWEMU.') + '</div>') + (state.plusPage < state.plusPageCount && rows ? '<div class="plus-more"><button class="secondary-button" type="button" data-action="plus-next-page" ' + (state.plusSearching ? 'disabled' : '') + '>Показать ещё</button></div>' : '') + '<p class="plus-legal-note">Лицензии: CC0 / Public Domain, CC BY и CC BY-SA. Перед повторным распространением проверь исходную страницу и условия конкретной записи. Защищённые каталоги и DRM QWEMU не обходит.</p>';
+}
+
 function pageContent() {
+  if (state.page === 'plus') return renderPlusPage();
   if(state.page==='home') {
     const recent=state.search.trim()?visibleTracks():[...state.tracks].slice(-6).reverse();
     return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+resumeSessionCard()+librarySummary()+
@@ -290,7 +307,7 @@ function pageContent() {
         </section>
         <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск · <kbd>Ctrl</kbd> + <kbd>A</kbd> — выбрать видимые треки · <kbd>Esc</kbd> — снять выделение.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
         <details class="surface update-details" style="margin-top:14px"><summary>О программе и обновление приложения</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Приложение автоматически проверяет стабильные обновления. Установка запускается только после твоего подтверждения; загружаемый пакет проверяется цифровой подписью.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
-        <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
+        `;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
     const conflicts=Object.entries(state.cloudConflicts).map(([key])=>`<article class="surface" style="margin-top:10px"><h3>${conflictNames[key]||key}</h3><p class="muted">Эти данные были изменены на другом устройстве. Выбери, какую версию оставить.</p><button class="secondary-button" data-action="resolve-cloud-remote" data-key="${key}">Использовать облачную</button> <button class="primary-button" data-action="resolve-cloud-local" data-key="${key}">Оставить эту версию</button></article>`).join('');
@@ -328,7 +345,7 @@ function render() {
   renderLyricsPanel();updateMediaSession(current);
 }
 function setPage(page) {
-  if (!['home','library','playlists','favorites','queue','history','settings','profile'].includes(page)) return;
+  if (!['home','library','playlists','favorites','queue','history','settings','profile','plus'].includes(page)) return;
   state.page = page; render();
 }
 function persistCloud(key, value) {
@@ -1034,11 +1051,105 @@ async function addMusicLink() {
   }
 }
 
-function showPlusDemo(){
-  const query=$('#plus-demo-query')?.value.trim();
-  const node=$('#plus-demo-result');
-  if(!node)return;
-  node.textContent=query?('QWEMU PLUS — DEMO: демонстрационный поиск по запросу «'+query.slice(0,120)+'». Реальный каталог не подключён; добавляй музыку через проверенную ссылку или локальный файл.'):'Введите запрос, чтобы показать демонстрационный экран поиска.';
+async function searchPlusMusic(append = false) {
+  const input = $('#plus-query');
+  const query = append ? state.plusQuery : String(input?.value ?? state.plusQuery).trim().slice(0, 200);
+  if (query.length < 2) {
+    state.plusQuery = query;
+    state.plusStatus = 'Для поиска введи не менее двух символов.';
+    render();
+    return;
+  }
+  state.plusQuery = query;
+  const page = append ? state.plusPage + 1 : 1;
+  plusSearchController?.abort();
+  const controller = new AbortController();
+  plusSearchController = controller;
+  const requestId = ++plusSearchSequence;
+  state.plusSearching = true;
+  if (!append) {
+    state.plusResults = [];
+    state.plusPage = 1;
+    state.plusPageCount = 1;
+    state.plusResultCount = 0;
+    state.plusStatus = 'Ищем открыто лицензированную музыку…';
+  } else state.plusStatus = 'Загружаем следующую страницу…';
+  if (state.page === 'plus') render();
+  try {
+    const result = await searchOpenverseAudio(query, { page, signal: controller.signal });
+    if (requestId !== plusSearchSequence || controller.signal.aborted) return;
+    const existing = new Set(state.plusResults.map(item => item.id));
+    const incoming = append ? result.results.filter(item => !existing.has(item.id)) : result.results;
+    state.plusResults = append ? [...state.plusResults, ...incoming] : incoming;
+    state.plusPage = result.page;
+    state.plusPageCount = result.pageCount;
+    state.plusResultCount = result.resultCount;
+    state.plusStatus = state.plusResults.length
+      ? 'Найдено подходящих записей на этой странице: ' + result.results.length + '. Прослушивание доступно прямо в QWEMU.'
+      : 'Подходящих открыто лицензированных аудиозаписей не найдено. Попробуй другое название.';
+  } catch (error) {
+    if (requestId !== plusSearchSequence || controller.signal.aborted) return;
+    state.plusStatus = error?.message || 'Поиск не удался. Попробуй ещё раз.';
+  } finally {
+    if (requestId === plusSearchSequence) {
+      state.plusSearching = false;
+      plusSearchController = null;
+      if (state.page === 'plus') render();
+    }
+  }
+}
+
+async function addOpenverseTrack(resultId, playImmediately = false) {
+  const item = state.plusResults.find(result => result.id === resultId);
+  if (!item) throw new Error('Эта запись больше не находится в результатах поиска. Повтори поиск.');
+  let track = state.tracks.find(existing => existing.openverseId === item.id || existing.url === item.url);
+  if (!track) {
+    track = {
+      id: 'openverse-' + item.id, openverseId: item.id,
+      name: item.title, title: item.title, artist: item.creator,
+      album: 'Openverse · ' + item.provider, lyrics: '',
+      size: item.fileSize, lastModified: 0, duration: item.duration, addedAt: Date.now(),
+      providerId: 'openverse', providerName: 'Openverse', linkKind: 'direct-audio',
+      url: item.url, sourceUrl: item.sourceUrl, licenseCode: item.licenseCode,
+      licenseVersion: item.licenseVersion, licenseUrl: item.licenseUrl,
+      fileType: item.fileType, attribution: item.attribution
+    };
+    if (desktopRuntime) await libraryStore.putLink(track);
+    state.tracks.push(track);
+  }
+  if (state.page === 'plus') render();
+  if (playImmediately) {
+    await playTrack(track.id, [track.id]);
+    toast('Воспроизведение открытой записи запущено в QWEMU.');
+  } else toast('Трек добавлен в медиатеку. Атрибуция и лицензия сохранены.');
+  return track;
+}
+
+async function downloadOpenverseTrack(resultId) {
+  if (!desktopRuntime) {
+    toast('Скачивание доступно в установленном QWEMU MUSIC Desktop.');
+    return;
+  }
+  const item = state.plusResults.find(result => result.id === resultId);
+  if (!item) { toast('Запись больше не найдена. Повтори поиск.'); return; }
+  try {
+    const filePath = await invokeDesktopCommand('download_openverse_audio', {
+      request: {
+        url: item.url, sourceUrl: item.sourceUrl, licenseUrl: item.licenseUrl,
+        licenseCode: item.licenseCode, licenseVersion: item.licenseVersion,
+        title: item.title, creator: item.creator, attribution: item.attribution,
+        fileType: item.fileType
+      }
+    });
+    toast('Музыка скачана. Файл атрибуции сохранён рядом: ' + filePath);
+  } catch (error) { toast('Не удалось скачать запись: ' + (error?.message || error)); }
+}
+
+async function copyOpenverseAttribution(resultId) {
+  const item = state.plusResults.find(result => result.id === resultId);
+  if (!item) { toast('Запись больше не найдена. Повтори поиск.'); return; }
+  const copied = await copyMusicLink(item.attribution);
+  toast(copied ? 'Атрибуция скопирована.' : 'Не удалось скопировать атрибуцию.');
 }
 async function copyMusicLink(value) {
   try {
@@ -1372,7 +1483,9 @@ async function importProfileBackup(file) {
       }
       if (!imported.url && !imported.externalUrl) { missingAudio += 1; continue; }
       if (state.tracks.length >= 5000) { rejectedByLimit += 1; continue; }
-      const classified = classifyMusicUrl(imported.url || imported.externalUrl);
+      const classified = imported.providerId === 'openverse' && isLicensedOpenverseTrack(imported)
+        ? { ok: true, kind: 'direct-audio', serviceId: 'openverse', serviceName: 'Openverse', url: imported.url }
+        : classifyMusicUrl(imported.url || imported.externalUrl);
       if (!classified.ok) { failed += 1; continue; }
       const restored = { ...imported, providerId: classified.serviceId, providerName: classified.serviceName, linkKind: classified.kind };
       try {
@@ -1463,10 +1576,13 @@ document.addEventListener('click', async event => {
   if (name === 'play-track') await playTrack(id);
   else if (name === 'open-link-dialog') openLinkDialog();
   else if (name === 'close-link') $('#link-dialog').close();
-  else if (name === 'plus-demo-link') { const q=$('#plus-link-query').value.trim();$('#plus-link-result').textContent=q?'QWEMU PLUS DEMO: демонстрационный запрос «'+q.slice(0,120)+'»; реальный каталог не подключён.':'Введите запрос.'; }
-  else if (name === 'link-preview') previewMusicLink();
+    else if (name === 'link-preview') previewMusicLink();
   else if (name === 'add-link') await addMusicLink();
-  else if (name === 'plus-demo') showPlusDemo();
+  else if (name === 'play-plus-track') await addOpenverseTrack(id, true);
+  else if (name === 'add-plus-track') await addOpenverseTrack(id, false);
+  else if (name === 'download-plus-track') await downloadOpenverseTrack(id);
+  else if (name === 'copy-plus-attribution') await copyOpenverseAttribution(id);
+  else if (name === 'plus-next-page') await searchPlusMusic(true);
   else if (name === 'check-updates') await checkForUpdates({ silent: false });
   else if (name === 'install-update') await installAvailableUpdate();
   else if (name === 'dismiss-update') $('#update-notice')?.remove();
@@ -1546,6 +1662,11 @@ $('#track-form').addEventListener('submit', saveTrackMetadata);
 $('#link-form').addEventListener('submit',async event=>{event.preventDefault();await addMusicLink();});
 $('#link-url').addEventListener('input',previewMusicLink);
 document.addEventListener('submit', async event => {
+  if (event.target.id === 'plus-search-form') {
+    event.preventDefault();
+    await searchPlusMusic(false);
+    return;
+  }
   if(event.target.id!=='profile-edit-form')return;event.preventDefault();
   const form=new FormData(event.target);try{state.user=await auth.updateProfile({displayName:String(form.get('displayName')||'').trim(),email:String(form.get('email')||'').trim()});render();toast('Профиль сохранён.');}
   catch(error){toast(`Не удалось сохранить профиль: ${error.message}`);}

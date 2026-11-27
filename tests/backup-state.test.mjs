@@ -115,3 +115,38 @@ test('serializes portable backups in compact JSON within the same import size li
   assert.deepEqual(parseBackup(serialized).tracks[0].id, 'large-metadata');
   assert.throws(() => serializeBackup({ format: 'other', schemaVersion: 1 }), TypeError);
 });
+
+test('keeps Openverse direct streams and licence attribution in backup round trips', () => {
+  const track = {
+    id: 'openverse-jamendo-1',
+    openverseId: 'openverse-jamendo-1',
+    name: 'Le piano',
+    title: 'Le piano',
+    artist: 'Sample Artist',
+    album: 'Openverse · Jamendo',
+    duration: 270,
+    size: 1024000,
+    providerId: 'openverse',
+    providerName: 'Openverse',
+    linkKind: 'direct-audio',
+    url: 'https://cdn.example.org/api/track/123/mp32',
+    sourceUrl: 'https://source.example.org/track/123',
+    licenseCode: 'by-sa',
+    licenseVersion: '4.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    attribution: 'Le piano · Sample Artist · CC BY-SA 4.0',
+    fileType: 'mp32'
+  };
+  const backup = createBackup({ tracks: [track] });
+  const [restored] = parseBackup(serializeBackup(backup)).tracks;
+  assert.equal(restored.url, track.url);
+  assert.equal(restored.externalUrl, undefined);
+  assert.equal(restored.providerId, 'openverse');
+  assert.equal(restored.openverseId, track.openverseId);
+  assert.equal(restored.licenseCode, 'by-sa');
+  assert.equal(restored.licenseVersion, '4.0');
+  assert.equal(restored.licenseUrl, track.licenseUrl);
+  assert.equal(restored.sourceUrl, track.sourceUrl);
+  assert.equal(restored.attribution, track.attribution);
+  assert.equal(restored.fileType, 'mp32');
+});
