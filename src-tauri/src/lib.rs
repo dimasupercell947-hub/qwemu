@@ -1,3 +1,12 @@
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use tokio::io::AsyncWriteExt;
+use tauri::Manager;
+
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -120,6 +129,320 @@ async fn install_update(
         .map_err(|error| format!("Не удалось проверить подпись или установить обновление: {error}"))
 }
 
+
+const MAX_OPENVERSE_DOWNLOAD_BYTES: u64 = 150 * 1024 * 1024;
+const ALLOWED_OPENVERSE_LICENSES: &[&str] = &["cc0", "pdm", "by", "by-sa"];
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenverseDownloadRequest {
+    url: String,
+    source_url: String,
+    license_url: String,
+    license_code: String,
+    license_version: String,
+    title: String,
+    creator: String,
+    attribution: String,
+    file_type: String,
+}
+
+fn safe_public_https_url(value: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(value).map_err(|_| "Некорректная HTTPS-ссылка.".to_string())?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some_and(|port| port != 443)
+    {
+        return Err("Разрешены только общедоступные HTTPS-ссылки без логина и нестандартного порта.".to_string());
+    }
+    let host = url.host_str()
+        .ok_or_else(|| "В ссылке отсутствует имя хоста.".to_string())?
+        .to_ascii_lowercase();
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host.ends_with(".lan")
+        || host.ends_with(".home")
+        || host.ends_with(".test")
+        || host.parse::<IpAddr>().is_ok()
+        || !host.contains('.')
+    {
+        return Err("Локальные адреса, IP-адреса и непубличные имена запрещены.".to_string());
+    }
+    Ok(url)
+}
+
+fn safe_license_url(value: &str) -> Result<reqwest::Url, String> {
+    let url = safe_public_https_url(value)?;
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    if host != "creativecommons.org" && !host.ends_with(".creativecommons.org") {
+        return Err("Ссылка на лицензию должна вести на Creative Commons.".to_string());
+    }
+    Ok(url)
+}
+
+fn address_is_private(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(ip) => {
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.octets()[0] == 0
+                || ip.octets()[0] >= 240
+        }
+        IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip.is_multicast()
+                || ip.to_ipv4().is_some_and(|mapped| address_is_private(IpAddr::V4(mapped)))
+        }
+    }
+}
+
+async fn get_public_audio_response(url: &reqwest::Url) -> Result<reqwest::Response, String> {
+    let host = url.host_str().ok_or_else(|| "В аудиоссылке отсутствует домен.".to_string())?;
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|error| format!("Не удалось проверить адрес аудиоисточника: {error}"))?
+        .collect();
+    if addresses.is_empty() || addresses.iter().any(|address| address_is_private(address.ip())) {
+        return Err("Аудиоисточник разрешается в локальный или недопустимый IP-адрес.".to_string());
+    }
+    // Pin validated DNS results. Redirects are resolved and checked again.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(60))
+        .resolve_to_addrs(host, &addresses)
+        .build()
+        .map_err(|error| format!("Не удалось подготовить безопасное соединение: {error}"))?;
+    client.get(url.clone())
+        .header(reqwest::header::USER_AGENT, "QWEMU-MUSIC/2.0.2")
+        .header(reqwest::header::ACCEPT, "audio/*, application/ogg, application/octet-stream")
+        .send()
+        .await
+        .map_err(|error| format!("Не удалось загрузить аудиофайл: {error}"))
+}
+
+async fn fetch_public_audio(start: reqwest::Url) -> Result<reqwest::Response, String> {
+    let mut current = start;
+    for _ in 0..=5 {
+        let response = get_public_audio_response(&current).await?;
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| "Аудиоисточник вернул перенаправление без Location.".to_string())?;
+            current = current.join(location)
+                .map_err(|_| "Аудиоисточник вернул некорректное перенаправление.".to_string())?;
+            current = safe_public_https_url(current.as_str())?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(format!("Аудиоисточник ответил HTTP {}.", response.status()));
+        }
+        return Ok(response);
+    }
+    Err("Слишком много перенаправлений от аудиоисточника.".to_string())
+}
+
+fn clean_metadata_line(value: &str, max_chars: usize) -> String {
+    value.chars().filter(|ch| !ch.is_control()).take(max_chars).collect::<String>().trim().to_string()
+}
+
+fn safe_filename_stem(value: &str) -> String {
+    let filtered = value.chars().map(|ch| {
+        if ch.is_control()
+            || ch == char::from(92)
+            || matches!(ch, '<' | '>' | ':' | '"' | '/' | '|' | '?' | '*')
+        {
+            '_'
+        } else {
+            ch
+        }
+    }).collect::<String>();
+    let trimmed = filtered.trim_matches(|ch: char| ch == '.' || ch.is_whitespace());
+    let mut stem = trimmed.chars().take(80).collect::<String>();
+    if stem.is_empty() {
+        stem = "QWEMU-Open-Audio".to_string();
+    }
+    let upper = stem.to_ascii_uppercase();
+    if [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
+        "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4",
+        "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    ].contains(&upper.as_str()) {
+        stem.insert(0, '_');
+    }
+    stem
+}
+
+fn safe_audio_extension(file_type: &str, url: &reqwest::Url) -> &'static str {
+    let candidate = file_type.to_ascii_lowercase();
+    let mime_or_extension = candidate.split('/').last().unwrap_or(candidate.as_str());
+    let mapped = match mime_or_extension {
+        "mpeg" | "mp3" | "x-mp3" => "mp3",
+        "wav" | "x-wav" | "wave" => "wav",
+        "flac" | "x-flac" => "flac",
+        "ogg" | "oga" => "ogg",
+        "opus" => "opus",
+        "aac" | "adts" => "aac",
+        "mp4" | "m4a" | "x-m4a" | "mp4a-latm" => "m4a",
+        _ => ""
+    };
+    if !mapped.is_empty() {
+        return mapped;
+    }
+    match url.path().rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
+        "mp3" => "mp3",
+        "wav" => "wav",
+        "flac" => "flac",
+        "ogg" | "oga" => "ogg",
+        "opus" => "opus",
+        "aac" => "aac",
+        "m4a" | "mp4" => "m4a",
+        _ => "audio"
+    }
+}
+
+fn unique_download_path(folder: &std::path::Path, stem: &str, extension: &str) -> PathBuf {
+    let mut index = 1u32;
+    loop {
+        let suffix = if index == 1 { String::new() } else { format!(" ({index})") };
+        let path = folder.join(format!("{stem}{suffix}.{extension}"));
+        let sidecar = folder.join(format!("{stem}{suffix}.license.txt"));
+        if !path.exists() && !sidecar.exists() {
+            return path;
+        }
+        index = index.saturating_add(1);
+    }
+}
+
+#[tauri::command]
+async fn download_openverse_audio(
+    app: tauri::AppHandle,
+    request: OpenverseDownloadRequest,
+) -> Result<String, String> {
+    let license_code = request.license_code.to_ascii_lowercase();
+    if !ALLOWED_OPENVERSE_LICENSES.contains(&license_code.as_str()) {
+        return Err("Скачивание разрешено только для CC0, Public Domain, CC BY и CC BY-SA.".to_string());
+    }
+    let source_url = safe_public_https_url(&request.source_url)?;
+    let license_url = safe_license_url(&request.license_url)?;
+    let media_url = safe_public_https_url(&request.url)?;
+    if request.title.trim().is_empty()
+        || request.title.len() > 480
+        || request.creator.len() > 360
+        || request.attribution.len() > 2400
+        || request.license_version.len() > 20
+        || request.file_type.len() > 40
+    {
+        return Err("Метаданные трека имеют недопустимую длину.".to_string());
+    }
+
+    let response = fetch_public_audio(media_url.clone()).await?;
+    let content_type = response.headers().get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok()).unwrap_or("")
+        .split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if !(content_type.starts_with("audio/")
+        || content_type == "application/ogg"
+        || content_type == "application/octet-stream")
+    {
+        return Err("Источник не вернул аудиофайл. Скачивание HTML-страниц и видео запрещено.".to_string());
+    }
+    if response.content_length().is_some_and(|size| size > MAX_OPENVERSE_DOWNLOAD_BYTES) {
+        return Err("Размер аудиофайла превышает лимит 150 МиБ.".to_string());
+    }
+
+    let download_root = app.path().download_dir()
+        .map_err(|error| format!("Не удалось определить папку «Загрузки»: {error}"))?;
+    let folder = download_root.join("QWEMU PLUS");
+    tokio::fs::create_dir_all(&folder).await
+        .map_err(|error| format!("Не удалось создать папку загрузок QWEMU PLUS: {error}"))?;
+
+    let extension = safe_audio_extension(&request.file_type, &media_url);
+    let stem = safe_filename_stem(&request.title);
+    let destination = unique_download_path(&folder, &stem, extension);
+    let sidecar = destination.with_file_name(format!(
+        "{}.license.txt",
+        destination.file_stem().and_then(|name| name.to_str()).unwrap_or("track")
+    ));
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let part_path = destination.with_extension(format!("{extension}.{nonce}.part"));
+    let sidecar_part = sidecar.with_extension(format!("txt.{nonce}.part"));
+
+    let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&part_path).await
+        .map_err(|error| format!("Не удалось создать временный файл аудио: {error}"))?;
+    let mut response = response;
+    let mut total = 0u64;
+    loop {
+        let next = match response.chunk().await {
+            Ok(value) => value,
+            Err(error) => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&part_path).await;
+                return Err(format!("Ошибка чтения аудиоисточника: {error}"));
+            }
+        };
+        let Some(chunk) = next else { break; };
+        total = total.saturating_add(chunk.len() as u64);
+        if total > MAX_OPENVERSE_DOWNLOAD_BYTES {
+            drop(file);
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err("Размер аудиофайла превышает лимит 150 МиБ.".to_string());
+        }
+        if let Err(error) = file.write_all(&chunk).await {
+            drop(file);
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err(format!("Не удалось записать аудиофайл: {error}"));
+        }
+    }
+    if total == 0 {
+        drop(file);
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err("Источник вернул пустой аудиофайл.".to_string());
+    }
+    if let Err(error) = file.flush().await {
+        drop(file);
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(format!("Не удалось завершить запись аудио: {error}"));
+    }
+    drop(file);
+    if let Err(error) = tokio::fs::rename(&part_path, &destination).await {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(format!("Не удалось сохранить аудиофайл в папку загрузок: {error}"));
+    }
+
+    let title = clean_metadata_line(&request.title, 160);
+    let creator = clean_metadata_line(&request.creator, 120);
+    let attribution = clean_metadata_line(&request.attribution, 1200);
+    let sidecar_text = format!(
+        "QWEMU PLUS — сведения об аудиозаписи\n\nНазвание: {title}\nАвтор: {creator}\nЛицензия: {} {}\nУсловия лицензии: {}\nОригинальная страница: {}\n\nАтрибуция из каталога:\n{attribution}\n\nПеред повторным распространением проверь лицензию и права на оригинальной странице записи.\n",
+        license_code.to_ascii_uppercase(),
+        clean_metadata_line(&request.license_version, 20),
+        license_url.as_str(),
+        source_url.as_str()
+    );
+    if let Err(error) = tokio::fs::write(&sidecar_part, sidecar_text).await {
+        let _ = tokio::fs::remove_file(&destination).await;
+        return Err(format!("Аудио получено, но не удалось записать сведения о лицензии: {error}"));
+    }
+    if let Err(error) = tokio::fs::rename(&sidecar_part, &sidecar).await {
+        let _ = tokio::fs::remove_file(&sidecar_part).await;
+        let _ = tokio::fs::remove_file(&destination).await;
+        return Err(format!("Не удалось сохранить файл атрибуции, аудиофайл удалён: {error}"));
+    }
+
+    Ok(destination.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -130,8 +453,60 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             check_for_updates,
-            install_update
+            install_update,
+            download_openverse_audio
         ])
         .run(tauri::generate_context!())
         .expect("failed to run QWEMU MUSIC Desktop");
+}
+
+#[cfg(test)]
+mod openverse_download_tests {
+    use super::*;
+
+    #[test]
+    fn only_public_https_media_urls_are_allowed() {
+        assert!(safe_public_https_url("https://cdn.example.org/audio/song.mp3").is_ok());
+        for value in [
+            "http://cdn.example.org/song.mp3",
+            "https://localhost/song.mp3",
+            "https://nas.local/song.mp3",
+            "https://127.0.0.1/song.mp3",
+            "https://user:pass@cdn.example.org/song.mp3",
+            "https://cdn.example.org:8443/song.mp3",
+        ] {
+            assert!(safe_public_https_url(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn licence_url_must_be_creative_commons_and_https() {
+        assert!(safe_license_url("https://creativecommons.org/licenses/by/4.0/").is_ok());
+        assert!(safe_license_url("https://evil.example/license").is_err());
+        assert!(safe_license_url("http://creativecommons.org/licenses/by/4.0/").is_err());
+    }
+
+    #[test]
+    fn windows_device_names_are_never_used_for_downloads() {
+        assert_eq!(safe_filename_stem("CON"), "_CON");
+        assert!(!safe_filename_stem("../Bad:name").contains('/'));
+        assert!(!safe_filename_stem(" ").is_empty());
+    }
+
+    #[test]
+    fn private_and_special_ip_addresses_are_rejected_after_dns_resolution() {
+        for value in ["127.0.0.1", "10.0.0.1", "169.254.10.1", "192.168.1.1", "::1", "fc00::1"] {
+            let parsed: IpAddr = value.parse().unwrap();
+            assert!(address_is_private(parsed), "{value}");
+        }
+        let public: IpAddr = "1.1.1.1".parse().unwrap();
+        assert!(!address_is_private(public));
+    }
+
+    #[test]
+    fn extensions_are_selected_from_a_whitelist() {
+        let url = reqwest::Url::parse("https://cdn.example.org/music/track.mp3").unwrap();
+        assert_eq!(safe_audio_extension("audio/mpeg", &url), "mp3");
+        assert_eq!(safe_audio_extension("unknown", &url), "mp3");
+    }
 }
