@@ -45,7 +45,7 @@ export function normalizeOpenverseAudio(item) {
   return Object.freeze({
     id, title, creator: creator || 'Автор не указан', provider: provider || 'Openverse',
     url, sourceUrl, licenseCode, licenseVersion, licenseUrl, attribution,
-    fileType, duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
+    fileType, duration: Number.isFinite(duration) && duration > 0 ? Math.round(duration / 1000) : 0,
     fileSize: Number.isFinite(fileSize) && fileSize > 0 ? fileSize : 0
   });
 }
