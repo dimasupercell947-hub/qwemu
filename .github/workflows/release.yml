@@ -63,6 +63,9 @@ jobs:
       - name: Full test suite
         run: npm run check
 
+      - name: Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       - name: Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
