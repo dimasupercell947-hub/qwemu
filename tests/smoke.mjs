@@ -162,6 +162,8 @@ assert.ok(read('public/assets/queue-state.js').includes('resolveResumeQueue'));
 assert.ok(read('public/assets/queue-state.js').includes('shuffleUpcomingQueue'));
 assert.ok(read('public/assets/queue-state.js').includes('restoreUnshuffledQueue'));
 assert.ok(read('public/assets/backup-state.js').includes('mergeBackupCollections'));
+assert.ok(read('public/assets/backup-state.js').includes('normalizeEqSettings(eqSettings)'));
+assert.ok(read('public/assets/eq.js').includes('window.QWEMU_EQ_API = Object.freeze'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
 assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
 assert.ok(read('public/assets/music-url.js').includes('yandex-music'));

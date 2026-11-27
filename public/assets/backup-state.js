@@ -1,4 +1,5 @@
 import { classifyMusicUrl } from './music-url.js';
+import { normalizeEqSettings } from './eq-state.js';
 
 export const BACKUP_FORMAT = 'qwemu-music-backup';
 export const BACKUP_SCHEMA_VERSION = 1;
@@ -154,6 +155,7 @@ export function createBackup({
   favorites = [],
   playlists = [],
   settings = {},
+  eqSettings = null,
   playHistory = [],
   sortMode = 'added-desc'
 } = {}) {
@@ -177,6 +179,7 @@ export function createBackup({
     favorites: [...new Set((Array.isArray(favorites) ? favorites : []).map(safeId).filter(id => id && seen.has(id)))].slice(0, 5000),
     playlists: normalizeCollections(playlists, seen),
     settings: normalizeSettings(settings),
+    eqSettings: normalizeEqSettings(eqSettings),
     playHistory: normalizeHistory(playHistory, seen),
     sortMode: SORT_MODES.has(sortMode) ? sortMode : 'added-desc',
     warnings: warnings.slice(0, 100)
@@ -216,6 +219,7 @@ export function parseBackup(source) {
     favorites: [...new Set((Array.isArray(parsed.favorites) ? parsed.favorites : []).map(safeId).filter(id => id && seen.has(id)))].slice(0, 5000),
     playlists: normalizeCollections(parsed.playlists, seen),
     settings: normalizeSettings(parsed.settings),
+    eqSettings: parsed.eqSettings && typeof parsed.eqSettings === 'object' ? normalizeEqSettings(parsed.eqSettings) : null,
     playHistory: normalizeHistory(parsed.playHistory, seen),
     sortMode: SORT_MODES.has(parsed.sortMode) ? parsed.sortMode : 'added-desc',
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings.filter(item => typeof item === 'string').slice(0, 100).map(item => text(item, 180)) : []

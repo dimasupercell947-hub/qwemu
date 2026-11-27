@@ -12,6 +12,7 @@ const sample = {
   favorites: ['local-1', 'local-1', 'missing'],
   playlists: [{ id: 'playlist-1', name: 'Mix', description: 'Daily', trackIds: ['local-1', 'bookmark-1', 'missing'] }],
   settings: { theme: 'midnight', volume: 0.45, reducedMotion: true },
+  eqSettings: { gains: [-15, -10.5, -7, -2.5, 0, 1.5, 3, 5, 8, 14], enabled: false },
   playHistory: [{ trackId: 'local-1', playedAt: 100 }, { trackId: 'local-1', playedAt: 90 }],
   sortMode: 'title-asc'
 };
@@ -28,6 +29,8 @@ test('exports a metadata-only portable backup and restores normalized data', () 
   assert.deepEqual(restored.playlists[0].trackIds, ['local-1', 'bookmark-1']);
   assert.equal(restored.settings.theme, 'midnight');
   assert.equal(restored.settings.volume, 0.45);
+  assert.deepEqual(restored.eqSettings.gains, [-12, -10.5, -7, -2.5, 0, 1.5, 3, 5, 8, 12]);
+  assert.equal(restored.eqSettings.enabled, false);
   assert.equal(restored.playHistory.length, 1);
   assert.equal(restored.tracks[1].url, 'https://cdn.example.com/stream.mp3');
   assert.equal(restored.tracks[2].externalUrl, 'https://open.spotify.com/track/demo');
@@ -91,4 +94,13 @@ test('merges backup collections without deleting newer favorites, playlists or h
     { trackId: 'a', playedAt: 150 },
     { trackId: 'b', playedAt: 90 }
   ]);
+});
+
+test('accepts backups from earlier app versions without replacing current EQ settings', () => {
+  const oldBackup = {
+    format: BACKUP_FORMAT,
+    schemaVersion: 1,
+    tracks: [{ id: 'old-track', title: 'Old track' }]
+  };
+  assert.equal(parseBackup(JSON.stringify(oldBackup)).eqSettings, null);
 });

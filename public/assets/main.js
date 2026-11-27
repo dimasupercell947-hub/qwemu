@@ -1269,6 +1269,17 @@ function clearHistory(){
   if(!confirm('Очистить историю прослушивания? Медиатека и плейлисты не изменятся.'))return;
   state.playHistory=[];writeLocal('play-history',state.playHistory);render();toast('История прослушивания очищена.');
 }
+function getEqBackupSettings() {
+  try {
+    const live = window.QWEMU_EQ_API?.getSettings?.();
+    if (live && typeof live === 'object') return live;
+    const raw = localStorage.getItem('qwemu.eq.v1');
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn('QWEMU не смог прочитать настройки эквалайзера:', error);
+    return null;
+  }
+}
 function exportProfileBackup() {
   try {
     const backup = createBackup({
@@ -1277,6 +1288,7 @@ function exportProfileBackup() {
       favorites: state.favorites,
       playlists: state.playlists,
       settings: state.settings,
+      eqSettings: getEqBackupSettings(),
       playHistory: state.playHistory,
       sortMode: state.sortMode
     });
@@ -1346,6 +1358,17 @@ async function importProfileBackup(file) {
     state.favorites = merged.favorites;
     state.playlists = merged.playlists;
     state.settings = normalizeSettings(backup.settings);
+    if (backup.eqSettings) {
+      try {
+        const applied = window.QWEMU_EQ_API?.setSettings?.(backup.eqSettings);
+        if (!applied) {
+          localStorage.setItem('qwemu.eq.v1', JSON.stringify({ version: 2, ...backup.eqSettings }));
+        }
+      } catch (error) {
+        failed += 1;
+        console.warn('QWEMU не смог восстановить настройки эквалайзера:', error);
+      }
+    }
     state.playHistory = merged.playHistory;
     state.sortMode = Object.hasOwn(TRACK_SORT_MODES, backup.sortMode) ? backup.sortMode : 'added-desc';
     state.selectedTrackIds.clear();
