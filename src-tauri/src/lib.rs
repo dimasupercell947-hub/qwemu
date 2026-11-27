@@ -308,11 +308,25 @@ fn safe_filename_stem(value: &str) -> String {
     stem
 }
 
-fn safe_audio_extension(file_type: &str, url: &reqwest::Url) -> &'static str {
+fn safe_audio_extension(file_type: &str, content_type: &str, url: &reqwest::Url) -> &'static str {
+    let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let mime_extension = match mime.as_str() {
+        "audio/mpeg" | "audio/mp3" | "audio/x-mp3" => "mp3",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/flac" | "audio/x-flac" => "flac",
+        "audio/ogg" | "application/ogg" => "ogg",
+        "audio/opus" => "opus",
+        "audio/aac" | "audio/aacp" => "aac",
+        "audio/mp4" | "audio/x-m4a" | "video/mp4" => "m4a",
+        _ => "",
+    };
+    if !mime_extension.is_empty() {
+        return mime_extension;
+    }
     let candidate = file_type.to_ascii_lowercase();
     let mime_or_extension = candidate.split('/').last().unwrap_or(candidate.as_str());
     let mapped = match mime_or_extension {
-        "mpeg" | "mp3" | "x-mp3" => "mp3",
+        "mpeg" | "mp3" | "x-mp3" | "mp32" => "mp3",
         "wav" | "x-wav" | "wave" => "wav",
         "flac" | "x-flac" => "flac",
         "ogg" | "oga" => "ogg",
@@ -343,7 +357,21 @@ fn safe_audio_extension(file_type: &str, url: &reqwest::Url) -> &'static str {
     }
 }
 
-fn unique_download_path(folder: &std::path::Path, stem: &str, extension: &str) -> PathBuf {
+struct DownloadReservation {
+    marker: PathBuf,
+}
+
+impl Drop for DownloadReservation {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.marker);
+    }
+}
+
+fn reserve_unique_download_path(
+    folder: &std::path::Path,
+    stem: &str,
+    extension: &str,
+) -> Result<(PathBuf, PathBuf, DownloadReservation), String> {
     let mut index = 1u32;
     loop {
         let suffix = if index == 1 {
@@ -353,10 +381,28 @@ fn unique_download_path(folder: &std::path::Path, stem: &str, extension: &str) -
         };
         let path = folder.join(format!("{stem}{suffix}.{extension}"));
         let sidecar = folder.join(format!("{stem}{suffix}.license.txt"));
-        if !path.exists() && !sidecar.exists() {
-            return path;
+        let marker = folder.join(format!(".{stem}{suffix}.qwemu-reserve"));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+            Ok(file) => {
+                drop(file);
+                let reservation = DownloadReservation { marker };
+                if path.exists() || sidecar.exists() {
+                    drop(reservation);
+                    index = index.saturating_add(1);
+                    continue;
+                }
+                return Ok((path, sidecar, reservation));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                index = index.saturating_add(1);
+            }
+            Err(error) => {
+                return Err(format!("Не удалось зарезервировать имя загрузки: {error}"));
+            }
         }
-        index = index.saturating_add(1);
+        if index == u32::MAX {
+            return Err("Не удалось подобрать свободное имя файла.".to_string());
+        }
     }
 }
 
@@ -419,16 +465,10 @@ async fn download_openverse_audio(
         .await
         .map_err(|error| format!("Не удалось создать папку загрузок QWEMU PLUS: {error}"))?;
 
-    let extension = safe_audio_extension(&request.file_type, &media_url);
+    let extension = safe_audio_extension(&request.file_type, &content_type, &media_url);
     let stem = safe_filename_stem(&request.title);
-    let destination = unique_download_path(&folder, &stem, extension);
-    let sidecar = destination.with_file_name(format!(
-        "{}.license.txt",
-        destination
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("track")
-    ));
+    let (destination, sidecar, _reservation) =
+        reserve_unique_download_path(&folder, &stem, extension)?;
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -583,7 +623,36 @@ mod openverse_download_tests {
     #[test]
     fn extensions_are_selected_from_a_whitelist() {
         let url = reqwest::Url::parse("https://cdn.example.org/music/track.mp3").unwrap();
-        assert_eq!(safe_audio_extension("audio/mpeg", &url), "mp3");
-        assert_eq!(safe_audio_extension("unknown", &url), "mp3");
+        assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &url), "mp3");
+        let extensionless = reqwest::Url::parse("https://cdn.example.org/api/track/123/mp32").unwrap();
+        assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &extensionless), "mp3");
+        assert_eq!(safe_audio_extension("audio/ogg", "application/ogg", &extensionless), "ogg");
+        assert_eq!(safe_audio_extension("unknown", "application/octet-stream", &url), "mp3");
+    }
+}
+
+#[cfg(test)]
+mod download_reservation_tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_downloads_reserve_distinct_audio_and_attribution_names() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let folder = std::env::temp_dir().join(format!("qwemu-plus-reservation-{nonce}"));
+        std::fs::create_dir_all(&folder).unwrap();
+
+        let (first_audio, first_sidecar, first_guard) =
+            reserve_unique_download_path(&folder, "Untitled", "mp3").unwrap();
+        let (second_audio, second_sidecar, second_guard) =
+            reserve_unique_download_path(&folder, "Untitled", "mp3").unwrap();
+
+        assert_ne!(first_audio, second_audio);
+        assert_ne!(first_sidecar, second_sidecar);
+        assert!(first_audio.ends_with("Untitled.mp3"));
+        assert!(second_audio.ends_with("Untitled (2).mp3"));
+
+        drop(first_guard);
+        drop(second_guard);
+        std::fs::remove_dir_all(folder).unwrap();
     }
 }
