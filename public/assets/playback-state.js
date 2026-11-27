@@ -21,6 +21,7 @@ export function createPlaybackSnapshot({
   currentId = null,
   position = 0,
   shuffle = false,
+  shuffleBackupIds = [],
   repeatMode = 'off'
 } = {}) {
   const queue = cleanIds(queueIds);
@@ -35,6 +36,7 @@ export function createPlaybackSnapshot({
     currentId: current,
     position: Number.isFinite(numericPosition) ? Math.max(0, Math.min(86400, numericPosition)) : 0,
     shuffle: shuffle === true,
+    shuffleBackupIds: cleanIds(shuffleBackupIds),
     repeatMode: REPEAT_MODES.has(repeatMode) ? repeatMode : 'off',
     savedAt: Date.now()
   };
@@ -48,6 +50,7 @@ export function restorePlaybackSnapshot(value, tracks) {
       .map(track => track.id)
   );
   const queueIds = cleanIds(value.queueIds).filter(id => available.has(id));
+  const shuffleBackupIds = cleanIds(value.shuffleBackupIds).filter(id => available.has(id));
   const currentId = typeof value.currentId === 'string' && available.has(value.currentId)
     ? value.currentId
     : null;
@@ -59,6 +62,7 @@ export function restorePlaybackSnapshot(value, tracks) {
     currentId,
     position: Number.isFinite(position) ? Math.max(0, Math.min(86400, position)) : 0,
     shuffle: value.shuffle === true,
+    shuffleBackupIds,
     repeatMode: REPEAT_MODES.has(value.repeatMode) ? value.repeatMode : 'off',
     savedAt: Number.isFinite(savedAt) && savedAt > 0 ? savedAt : 0
   };

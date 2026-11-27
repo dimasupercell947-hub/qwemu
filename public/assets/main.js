@@ -459,6 +459,7 @@ function persistPlaybackSnapshot(force = false) {
     currentId: state.currentId,
     position,
     shuffle: state.shuffle,
+    shuffleBackupIds: state.shuffleBackup,
     repeatMode: state.repeatMode
   });
   try {
@@ -481,6 +482,7 @@ async function restoreDesktopLibrary() {
   if (snapshot) {
     state.playbackQueue = snapshot.queueIds;
     state.shuffle = snapshot.shuffle;
+    state.shuffleBackup = snapshot.shuffleBackupIds;
     state.repeatMode = snapshot.repeatMode;
     audio.setRepeat(snapshot.repeatMode === 'one');
     state.resumePoint = snapshot.currentId ? snapshot : null;

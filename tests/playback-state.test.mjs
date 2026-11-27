@@ -8,12 +8,14 @@ test('creates a bounded, normalized playback snapshot', () => {
     currentId: 'c',
     position: 999999,
     shuffle: true,
+    shuffleBackupIds: ['a', 'b', 'a'],
     repeatMode: 'one'
   });
   assert.deepEqual(snapshot.queueIds, ['c', 'a', 'b']);
   assert.equal(snapshot.currentId, 'c');
   assert.equal(snapshot.position, 86400);
   assert.equal(snapshot.shuffle, true);
+  assert.deepEqual(snapshot.shuffleBackupIds, ['a', 'b']);
   assert.equal(snapshot.repeatMode, 'one');
   assert.equal(snapshot.schemaVersion, 1);
 });
@@ -25,6 +27,7 @@ test('restores only playable tracks and clamps invalid playback state', () => {
     currentId: 'stream',
     position: -5,
     shuffle: true,
+    shuffleBackupIds: ['stream', 'bookmark', 'local', 'local'],
     repeatMode: 'invalid',
     savedAt: 10
   }, [
@@ -37,6 +40,7 @@ test('restores only playable tracks and clamps invalid playback state', () => {
   assert.equal(snapshot.position, 0);
   assert.equal(snapshot.repeatMode, 'off');
   assert.equal(snapshot.shuffle, true);
+  assert.deepEqual(snapshot.shuffleBackupIds, ['stream', 'local']);
 });
 
 test('ignores unsupported snapshots and caps queue length', () => {
