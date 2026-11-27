@@ -11,7 +11,7 @@ import { TRACK_SORT_MODES, sortTracks } from './track-sort.js';
 import { exportPlaylistM3u, parsePlaylistM3u } from './playlist-io.js';
 import { parseLyrics, activeLyricIndex, normalizeLyrics } from './lyrics-state.js';
 import { classifyMusicUrl, titleFromMusicUrl, MUSIC_PLATFORMS } from './music-url.js';
-import { searchOpenverseAudio } from './plus-search.js';
+import { searchOpenverseAudio, isLicensedOpenverseTrack } from './plus-search.js';
 import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
@@ -1053,7 +1053,7 @@ async function addMusicLink() {
 
 async function searchPlusMusic(append = false) {
   const input = $('#plus-query');
-  const query = String(input?.value ?? state.plusQuery).trim().slice(0, 200);
+  const query = append ? state.plusQuery : String(input?.value ?? state.plusQuery).trim().slice(0, 200);
   if (query.length < 2) {
     state.plusQuery = query;
     state.plusStatus = 'Для поиска введи не менее двух символов.';
@@ -1483,7 +1483,9 @@ async function importProfileBackup(file) {
       }
       if (!imported.url && !imported.externalUrl) { missingAudio += 1; continue; }
       if (state.tracks.length >= 5000) { rejectedByLimit += 1; continue; }
-      const classified = classifyMusicUrl(imported.url || imported.externalUrl);
+      const classified = imported.providerId === 'openverse' && isLicensedOpenverseTrack(imported)
+        ? { ok: true, kind: 'direct-audio', serviceId: 'openverse', serviceName: 'Openverse', url: imported.url }
+        : classifyMusicUrl(imported.url || imported.externalUrl);
       if (!classified.ok) { failed += 1; continue; }
       const restored = { ...imported, providerId: classified.serviceId, providerName: classified.serviceName, linkKind: classified.kind };
       try {
