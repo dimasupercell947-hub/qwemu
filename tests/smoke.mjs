@@ -78,7 +78,7 @@ assert.equal(config.plugins.updater.windows.installMode, 'passive');
 assert.equal(JSON.parse(read('src-tauri/tauri.updater.conf.json')).bundle.createUpdaterArtifacts, true);
 
 const html = read('public/index.html');
-assert.match(html, /<meta name="app-version" content="2\.0\.0">/);
+assert.match(html, /<meta name="app-version" content="2\.0\.1">/);
 assert.ok(html.includes('id="app-version-label"'));
 assert.ok(html.includes('assets/desktop-bridge.js'));
 assert.ok(html.includes('assets/eq.js'));
