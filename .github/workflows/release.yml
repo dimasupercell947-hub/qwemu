@@ -13,9 +13,13 @@ concurrency:
 
 jobs:
   windows:
-    name: Build and publish Windows installers
+    name: Build and publish signed Windows updates
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      QWEMU_UPDATER_PUBLIC_KEY: ${{ vars.QWEMU_UPDATER_PUBLIC_KEY }}
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
@@ -31,6 +35,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+
+      - name: Validate updater signing configuration
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "Missing repository secret TAURI_SIGNING_PRIVATE_KEY. See the updater setup section in README.md."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:QWEMU_UPDATER_PUBLIC_KEY)) {
+            throw "Missing repository variable QWEMU_UPDATER_PUBLIC_KEY. It must match the generated signing key."
+          }
 
       - name: Verify tag and all project versions
         shell: pwsh
@@ -52,8 +66,15 @@ jobs:
       - name: Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
-      - name: Build Windows NSIS EXE and MSI
-        run: npm run tauri -- build --config src-tauri/tauri.conf.json
+      - name: Build signed Windows updater and installers
+        run: npm run tauri -- build --config src-tauri/tauri.conf.json --config src-tauri/tauri.updater.conf.json
+
+      - name: Generate signed update manifest
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          pwsh -NoProfile -File scripts/create-updater-manifest.ps1 -Version $version -Tag $tag -Repository $env:GITHUB_REPOSITORY
 
       - name: Verify installer outputs
         shell: pwsh
@@ -62,10 +83,12 @@ jobs:
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue
           if (-not $exe) { throw "NSIS EXE installer was not created." }
           if (-not $msi) { throw "MSI installer was not created." }
-          Get-FileHash $exe.FullName -Algorithm SHA256
-          Get-FileHash $msi.FullName -Algorithm SHA256
+          if (-not (Test-Path "latest.json")) { throw "Signed latest.json updater manifest was not created." }
+          Get-FileHash $exe[0].FullName -Algorithm SHA256
+          Get-FileHash $msi[0].FullName -Algorithm SHA256
+          Get-FileHash "latest.json" -Algorithm SHA256
 
-      - name: Publish GitHub Release with installers
+      - name: Publish GitHub Release with signed updater manifest
         uses: softprops/action-gh-release@v2
         with:
           name: QWEMU MUSIC Desktop ${{ github.ref_name }}
@@ -74,6 +97,7 @@ jobs:
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
+            latest.json
           fail_on_unmatched_files: true
 
       - name: Refresh public update manifest
@@ -109,4 +133,4 @@ jobs:
               sha,
               branch: 'main'
             });
-            core.info('Update manifest refreshed to ' + version);
+            core.info('Public version manifest refreshed to ' + version);
