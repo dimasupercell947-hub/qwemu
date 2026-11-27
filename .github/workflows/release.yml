@@ -100,7 +100,7 @@ jobs:
             latest.json
           fail_on_unmatched_files: true
 
-      - name: Refresh public version manifest
+      - name: Refresh public update manifest
         uses: actions/github-script@v7
         with:
           script: |
