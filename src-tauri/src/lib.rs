@@ -410,7 +410,11 @@ fn reserve_unique_download_path(
         let path = folder.join(format!("{stem}{suffix}.{extension}"));
         let sidecar = folder.join(format!("{stem}{suffix}.license.txt"));
         let marker = folder.join(format!(".{stem}{suffix}.qwemu-reserve"));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker)
+        {
             Ok(file) => {
                 drop(file);
                 let reservation = DownloadReservation { marker };
@@ -514,7 +518,12 @@ async fn download_openverse_audio(
     let mut response = response;
     let mut total = 0u64;
     loop {
-        let next = match tokio::time::timeout(AUDIO_CHUNK_STALL_TIMEOUT, response.chunk()).await {
+        let next = match tokio::time::timeout(
+            AUDIO_CHUNK_STALL_TIMEOUT,
+            response.chunk(),
+        )
+        .await
+        {
             Ok(Ok(value)) => value,
             Ok(Err(error)) => {
                 drop(file);
@@ -524,7 +533,10 @@ async fn download_openverse_audio(
             Err(_) => {
                 drop(file);
                 let _ = tokio::fs::remove_file(&part_path).await;
-                return Err("Аудиоисточник не передавал данные 45 секунд. Загрузка остановлена; временный файл удалён.".to_string());
+                return Err(
+                    "Аудиоисточник не передавал данные 45 секунд. Загрузка остановлена; временный файл удалён."
+                        .to_string(),
+                );
             }
         };
         let Some(chunk) = next else {
