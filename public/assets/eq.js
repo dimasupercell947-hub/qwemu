@@ -366,6 +366,21 @@ import { EQ_BANDS, EQ_PRESETS, calculateEqHeadroomGain, matchingEqPreset, normal
     }
   }, true);
 
+  window.QWEMU_EQ_API = Object.freeze({
+    getSettings() {
+      return { gains: [...gains], enabled };
+    },
+    setSettings(value) {
+      const normalized = parseEqSettings(JSON.stringify(value ?? {}));
+      gains = normalized.gains;
+      enabled = normalized.enabled;
+      syncBandInputs();
+      if (initializeAudio()) applySettings();
+      else saveSettings();
+      return true;
+    }
+  });
+
   applySettings();
   stopVisualizer();
 })();

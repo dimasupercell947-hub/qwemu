@@ -118,8 +118,72 @@ button:disabled{cursor:not-allowed;opacity:.6}
 .plus-preview input{box-sizing:border-box;width:100%;padding:11px;border:1px solid #49374f;border-radius:10px;background:#17131d;color:var(--text)}
 #link-dialog .dialog-content{gap:12px}
 #link-dialog .dialog-content label{display:grid;gap:7px}
-#link-dialog .dialog-content input[type="url"],#link-dialog .dialog-content input[type="search"],#link-dialog .dialog-content input:not([type]){width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
+#link-dialog .dialog-content input[type="url"],#link-dialog .dialog-content input[type="text"],#link-dialog .dialog-content input[type="search"],#link-dialog .dialog-content input:not([type]){width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
 #link-dialog .hero-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 @media(max-width:980px){.player{grid-template-columns:minmax(155px,.7fr) minmax(270px,1.4fr) minmax(90px,.45fr);gap:9px;padding:10px 14px}.transport-buttons{gap:5px}}
 @media(max-width:700px){.player{height:150px;grid-template-columns:1fr auto;grid-template-rows:48px 46px 22px;gap:4px;padding:10px 14px}.transport{grid-column:1/3;grid-row:2;grid-template-rows:auto 0;gap:0}.transport-buttons{gap:6px}.transport-buttons button{width:32px;height:32px}.transport-buttons #play{width:40px;height:40px}.timeline{grid-column:1/3;grid-row:3}.volume-control{grid-column:2;grid-row:1;width:96px}.lyrics-panel{right:10px;bottom:164px;width:calc(100vw - 20px);max-height:56vh}.lyrics-content{padding:12px 15px}.lyric-line button{font-size:14px}.lyric-line.active button{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.lyric-line,.transport-buttons button,.track-row{transition:none!important}}
+
+.source-catalog{margin-top:4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.source-catalog>summary{cursor:pointer;font-weight:650;color:var(--text)}
+.source-catalog-list{display:grid;gap:12px;margin-top:12px}
+.source-catalog-group{display:grid;gap:7px}
+.source-catalog-group>b{font-size:12px;letter-spacing:.03em;color:var(--muted);text-transform:uppercase}
+.source-catalog-chips{display:flex;flex-wrap:wrap;gap:6px}
+.source-catalog-chip{display:inline-flex;align-items:center;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12px;color:var(--text)}
+.source-catalog-note{margin:12px 0 0;font-size:12px;line-height:1.5}
+#link-result{padding:9px 11px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);line-height:1.45}
+
+
+/* QWEMU MUSIC 1.9.0 — Library Studio / multi-track actions */
+.stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.track-row{grid-template-columns:28px 42px minmax(0,1fr) auto}
+.track-select{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;justify-self:center;align-self:center;border:1px solid #5a5058;border-radius:5px;background:var(--panel2);cursor:pointer;position:relative}
+.track-select:checked{background:linear-gradient(135deg,#e14b48,#ef9456);border-color:#ee8b5b}
+.track-select:checked:after{content:"";position:absolute;left:5px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.track-select:focus-visible{outline:2px solid var(--orange);outline-offset:3px}
+.track-row.is-selected{background:color-mix(in srgb,var(--panel) 84%,#e27652 16%);border-color:#a85b49}
+.bulk-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.bulk-summary{display:flex;align-items:baseline;gap:6px;white-space:nowrap;color:var(--muted);font-size:12px}
+.bulk-summary b{font-size:18px;color:var(--text);font-variant-numeric:tabular-nums}
+.bulk-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.bulk-actions .secondary-button{padding:8px 11px;font-size:12px}
+.bulk-actions .text-button{font-size:12px}
+.bulk-actions .bulk-danger{color:#ff8b84;border-color:#87443f}
+.bulk-actions button:disabled{opacity:.42;cursor:not-allowed;filter:none}
+:root[data-theme="light"] .track-select{background:#fff;border-color:#b7aab0}
+:root[data-theme="light"] .bulk-toolbar{background:#fff}
+@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.track-row{grid-template-columns:26px 38px minmax(0,1fr) auto}}
+@media(max-width:700px){
+  .stats-grid .stat-card:last-child{grid-column:auto}
+  .bulk-toolbar{align-items:flex-start;flex-direction:column}
+  .bulk-actions{width:100%;justify-content:flex-start}
+  .bulk-actions button{flex:1 1 auto}
+  .track-row{grid-template-columns:24px 34px minmax(0,1fr);gap:7px}
+  .track-row .row-actions{grid-column:1/-1}
+  .track-select{width:17px;height:17px}
+}
+@media(prefers-reduced-motion:reduce){.track-row.is-selected{transition:none}}
+
+
+/* QWEMU MUSIC 2.0 — Infinity Evolution */
+.resume-card{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:16px 0 22px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--orange) 42%,var(--line));border-radius:16px;background:linear-gradient(115deg,color-mix(in srgb,var(--orange) 13%,var(--panel)),var(--panel));box-shadow:0 12px 32px rgba(0,0,0,.14)}
+.resume-copy{display:grid;gap:5px;min-width:0}.resume-copy>b{font-size:16px;color:var(--text)}.resume-copy>.muted{font-size:12px;overflow-wrap:anywhere}
+.resume-actions{display:flex;align-items:center;gap:9px;flex:0 0 auto}.resume-actions button{white-space:nowrap}
+.backup-surface>p{max-width:920px;line-height:1.65}.backup-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.backup-actions .file-label{display:inline-flex;align-items:center;justify-content:center;position:relative;overflow:hidden;cursor:pointer}.backup-actions input[type=file]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.update-notice{right:24px;bottom:126px;max-width:min(500px,calc(100vw - 48px))}
+@media(max-width:700px){.resume-card{align-items:flex-start;flex-direction:column;padding:15px;gap:12px}.resume-actions{width:100%;flex-wrap:wrap}.resume-actions button{flex:1}.backup-actions>*{flex:1 1 180px}.update-notice{right:10px;bottom:178px;max-width:calc(100vw - 20px)}}
+
+
+/* 2.0.0 queue grid: rows without a selection checkbox must not reserve its column. */
+.track-row{grid-template-columns:42px minmax(0,1fr) auto}
+.track-row.has-selection{grid-template-columns:28px 42px minmax(0,1fr) auto}
+@media(max-width:1100px){
+  .track-row{grid-template-columns:38px minmax(0,1fr) auto}
+  .track-row.has-selection{grid-template-columns:26px 38px minmax(0,1fr) auto}
+}
+@media(max-width:700px){
+  .track-row{grid-template-columns:34px minmax(0,1fr);gap:7px}
+  .track-row.has-selection{grid-template-columns:24px 34px minmax(0,1fr);gap:7px}
+  .track-row .row-actions{grid-column:1/-1}
+}
