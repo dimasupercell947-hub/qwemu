@@ -15,19 +15,26 @@ import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
 import { toggleSelection, toggleVisibleSelection, selectedInOrder } from './selection-state.js';
+import { createBackup, parseBackup } from './backup-state.js';
+import { createPlaybackSnapshot, restorePlaybackSnapshot } from './playback-state.js';
+import { compareStableVersions, parseStableVersion } from './version-state.js';
 
 const $ = selector => document.querySelector(selector);
 const storage = new StorageAdapter();
 const libraryStore = new LibraryStore();
 const playbackRequests = new PlaybackRequestGate();
 const importQueue = new SerialTaskQueue();
-const APP_VERSION = '1.9.0';
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '2.0.0';
+const RELEASES_URL = 'https://github.com/dimasupercell947-hub/qwemu/releases/latest';
+const RELEASES_API_URL = 'https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest';
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/public/version.json';
 const desktopRuntime = globalThis.QWEMU_DESKTOP === true;
 let libraryReady = !desktopRuntime;
 let libraryRestorePromise = Promise.resolve();
 const api = new ApiAdapter();
 const auth = new AuthAdapter(api);
 const audio = new BrowserAudioAdapter($('#audio'));
+let lastPlaybackSaveBucket = -1;
 const cloudWrites = new CloudWriteQueue();
 const savedFavorites=storage.read('favorites', []);
 const savedPlaylists=storage.read('playlists', []);
@@ -46,7 +53,7 @@ const state = {
   settings: normalizeSettings(savedSettings), settingsRevision: 0, repeatMode: 'off', shuffle: false, shuffleBackup: [],
   playHistory: normalizePlayHistory(savedHistory), sortMode: Object.hasOwn(TRACK_SORT_MODES, savedSortMode) ? savedSortMode : 'added-desc',
   currentId: null, playbackQueue: [], playbackIndex: -1, search: '', user: null, authMode: 'login', cloudReady: false, cloudLoadId: 0, authTransition: false, activePlaylist: null, selectedTrackIds: new Set(), toastTimer: null,
-  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, updateStatus: 'Проверка доступна вручную.',
+  lyricsOpen: false, lyricsTrackId: null, activeLyric: -1, resumePoint: null, updateStatus: 'Автоматическая проверка обновлений выполняется при запуске.',
   cloudVersions: { playlists: null, favorites: null, settings: null }, cloudConflicts: {}, bootstrapData: null, pendingSequence: 0
 };
 const themes = { 'dark-red': ['#0c0b0d','#b51e32','#f07832'], 'orange-night': ['#100d0a','#b84b1e','#ff9b42'], midnight: ['#090d18','#394c9c','#9b85ff'], 'pure-black': ['#000000','#b51e32','#f07832'], light: ['#f3eef0','#a51f35','#e66a27'] };
@@ -233,10 +240,18 @@ function librarySummary() {
     '<div class="stat-card"><strong>' + formatBytes(bytes) + '</strong><span>Занято аудиофайлами</span></div>' +
   '</div>';
 }
+function resumeSessionCard() {
+  const saved = state.resumePoint;
+  const track = saved?.currentId ? state.tracks.find(item => item.id === saved.currentId) : null;
+  if (!saved || !track || track.externalUrl) return '';
+  return '<section class="resume-card"><div class="resume-copy"><span class="eyebrow">LAST SESSION</span><b>Продолжить прослушивание</b><span class="muted">' +
+    escapeHtml(track.title) + ' · ' + escapeHtml(track.artist || 'Неизвестный исполнитель') + ' · с ' + formatTime(saved.position) +
+    '</span></div><div class="resume-actions"><button class="primary-button" data-action="resume-session">Продолжить</button><button class="text-button" data-action="clear-resume">Сбросить</button></div></section>';
+}
 function pageContent() {
   if(state.page==='home') {
     const recent=state.search.trim()?visibleTracks():[...state.tracks].slice(-6).reverse();
-    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+librarySummary()+
+    return '<section class="hero"><div class="eyebrow">QWEMU MUSIC · DESKTOP EDITION</div><h1>Твоя музыка.<br><span style="color:#ff9868">Твои правила.</span></h1><p>Локальный музыкальный центр: медиатека, плейлисты, история, очередь и настройка звучания. Файлы остаются на этом компьютере.</p><div class="hero-actions"><label class="primary-button file-label">＋ Добавить музыку<input id="file-input-hero" type="file" accept="'+AUDIO_ACCEPT+'" multiple></label><button class="secondary-button" data-action="open-link-dialog">Добавить по ссылке</button><button class="secondary-button" data-page="library">Открыть медиатеку</button><button class="secondary-button" data-page="queue">Очередь воспроизведения</button></div></section>'+resumeSessionCard()+librarySummary()+
     '<div class="section-head"><div><h2>Недавно добавленные</h2><p>Треки из локальной медиатеки</p></div><button class="text-button" data-page="library">Вся медиатека →</button></div>'+renderTracks(recent,false)+
     '<div class="section-head"><div><h2>Недавно прослушано</h2><p>Последние 4 композиции</p></div><button class="text-button" data-page="history">Вся история →</button></div>'+renderTracks(historyTracks(4),false);
   }
@@ -268,8 +283,12 @@ function pageContent() {
           <p class="muted">Аудиофайлы хранятся в IndexedDB профиля приложения. Они не загружаются в интернет и не отправляются в Cloudflare. Не очищай данные приложения, чтобы не удалить сохранённую коллекцию.</p>
           <p class="muted">Облачная авторизация и синхронизация доступны в отдельной Web Edition.</p>
         </section>
+        <section class="surface backup-surface" style="margin-top:14px"><h2>Резервная копия</h2>
+          <p class="muted">Экспортируются названия, исполнители, альбомы, тексты песен, плейлисты, избранное, история и настройки. Аудиофайлы в JSON не входят. При восстановлении данные локальных треков сопоставляются по ID; отсутствующие аудиофайлы не создаются, музыкальные ссылки повторно проверяются.</p>
+          <div class="backup-actions"><button class="primary-button" data-action="export-backup">Экспортировать копию</button><label class="secondary-button file-label">Импортировать копию<input id="backup-import" type="file" accept=".json,application/json"></label></div>
+        </section>
         <section class="surface" style="margin-top:14px"><h2>Горячие клавиши</h2><p class="muted"><kbd>Пробел</kbd> — пауза/воспроизведение · <kbd>←</kbd>/<kbd>→</kbd> — перемотка на 5 секунд · <kbd>Ctrl</kbd> + <kbd>←</kbd>/<kbd>→</kbd> — предыдущий/следующий трек · <kbd>Ctrl</kbd> + <kbd>K</kbd> — поиск · <kbd>Ctrl</kbd> + <kbd>A</kbd> — выбрать видимые треки · <kbd>Esc</kbd> — снять выделение.</p><p class="muted">M3U8 переносит структуру плейлиста, но не аудиофайлы.</p></section>
-        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Проверка доступна вручную; установщик автоматически не скачивается.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
+        <details class="surface update-details" style="margin-top:14px"><summary>О программе и проверка обновлений</summary><div class="update-body"><p class="muted">QWEMU MUSIC Desktop ${APP_VERSION}. Версия проверяется автоматически при запуске и вручную. Скачивание доступно только через официальный GitHub Releases; скрытая установка не выполняется.</p><button class="secondary-button" data-action="check-updates">Проверить обновления</button><p id="update-status" class="muted" role="status">${escapeHtml(state.updateStatus)}</p><a class="text-button" href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Открыть страницу релизов</a></div></details>
         <details class="surface plus-preview" style="margin-top:14px"><summary>QWEMU PLUS — DEMO</summary><div class="plus-body"><p>Демонстрационный экран расширенных функций. Это не реальная подписка и не платный каталог.</p><input id="plus-demo-query" type="search" maxlength="120" placeholder="Демо-поиск: исполнитель или название"><button class="secondary-button" data-action="plus-demo">Запустить демо</button><p id="plus-demo-result" class="muted" role="status"></p></div></details>`;
     }
     const conflictNames={playlists:'Плейлисты',favorites:'Избранное',settings:'Настройки'};
@@ -281,6 +300,8 @@ function pageContent() {
 }
 function render() {
   $('#view').innerHTML = pageContent();
+  const versionLabel = $('#app-version-label');
+  if (versionLabel) versionLabel.textContent = APP_VERSION;
   document.querySelectorAll('[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === state.page));
   if (desktopRuntime) {
     $('#account-button').textContent = 'Локальный режим';
@@ -427,9 +448,43 @@ async function loadCloud() {
     }
   }
 }
+function persistPlaybackSnapshot(force = false) {
+  if (!state.currentId && !state.playbackQueue.length) return;
+  const status = audio.getStatus();
+  const position = state.currentId ? status.position : 0;
+  const bucket = state.currentId ? Math.floor(position / 5) : -1;
+  if (!force && state.currentId && bucket === lastPlaybackSaveBucket) return;
+  const snapshot = createPlaybackSnapshot({
+    queueIds: state.playbackQueue,
+    currentId: state.currentId,
+    position,
+    shuffle: state.shuffle,
+    repeatMode: state.repeatMode
+  });
+  try {
+    storage.write(localKey('playback-state'), snapshot);
+    lastPlaybackSaveBucket = bucket;
+  } catch (error) {
+    console.warn('QWEMU не смог сохранить состояние воспроизведения:', error);
+  }
+}
+function clearSavedResume() {
+  state.resumePoint = null;
+  lastPlaybackSaveBucket = -1;
+  try { storage.remove(localKey('playback-state')); }
+  catch (error) { console.warn('QWEMU не смог очистить сохранённую сессию:', error); }
+}
 async function restoreDesktopLibrary() {
   const records = await libraryStore.list();
   state.tracks = records.filter(track => track && typeof track.id === 'string' && typeof track.name === 'string' && typeof track.title === 'string' && Number.isFinite(Number(track.size)));
+  const snapshot = restorePlaybackSnapshot(storage.read(localKey('playback-state'), null), state.tracks);
+  if (snapshot) {
+    state.playbackQueue = snapshot.queueIds;
+    state.shuffle = snapshot.shuffle;
+    state.repeatMode = snapshot.repeatMode;
+    audio.setRepeat(snapshot.repeatMode === 'one');
+    state.resumePoint = snapshot.currentId ? snapshot : null;
+  }
   render();
   if (state.tracks.length) toast('Медиатека восстановлена: ' + state.tracks.length + ' треков.');
 }
@@ -556,25 +611,47 @@ async function playTrack(id, queueIds = null) {
     if(track.externalUrl)throw new Error('Это сохранённая ссылка на музыкальный сайт. Открой источник для прослушивания.');
     await audio.play(playable);
     if(!playbackRequests.isCurrent(requestId))return;
-    state.currentId=id;state.lyricsTrackId=id;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);render();
+    state.currentId=id;state.lyricsTrackId=id;state.resumePoint=null;state.playHistory=recordPlay(state.playHistory,id);writeLocal('play-history',state.playHistory);persistPlaybackSnapshot(true);render();
   }catch(error){
     if(!playbackRequests.isCurrent(requestId))return;
     audio.stop();state.currentId=null;render();toast('Не удалось воспроизвести "'+track.title+'": '+(error.message||'проверь формат файла'));
   }
 }
-function stopPlayback(){playbackRequests.invalidate();audio.stop();state.currentId=null;render();}
+async function resumePlayback() {
+  const saved = state.resumePoint;
+  const track = saved?.currentId ? state.tracks.find(item => item.id === saved.currentId) : null;
+  if (!saved || !track || track.externalUrl) {
+    toast('Сохранённая композиция больше недоступна.');
+    clearSavedResume();
+    return;
+  }
+  state.resumePoint = null;
+  state.shuffle = saved.shuffle;
+  state.repeatMode = saved.repeatMode;
+  audio.setRepeat(saved.repeatMode === 'one');
+  await playTrack(saved.currentId, saved.queueIds);
+  if (state.currentId === saved.currentId) {
+    audio.seek(saved.position);
+    persistPlaybackSnapshot(true);
+    render();
+  } else {
+    state.resumePoint = saved;
+    render();
+  }
+}
+function stopPlayback(){playbackRequests.invalidate();audio.stop();state.currentId=null;clearSavedResume();render();}
 function advance(direction) {
   const available=new Set(state.tracks.filter(track=>!track.externalUrl).map(track=>track.id));
   const queue=state.playbackQueue.filter(id=>available.has(id));
   if(!queue.length){const initial=getPlaybackQueue();if(!initial.length)return;playTrack(initial[direction>0?0:initial.length-1],initial);return;}
   const next=getNextQueueIndex(queue,state.currentId,direction,state.repeatMode);
-  if(next<0){state.playbackQueue=queue;state.currentId=null;audio.stop();render();return;}
+  if(next<0){state.playbackQueue=queue;state.currentId=null;audio.stop();clearSavedResume();render();return;}
   playTrack(queue[next],queue);
 }
 function previousTrack(){if(audio.getStatus().position>3){audio.seek(0);return;}advance(-1);}
 function toggleRepeat(){
   const modes=['off','all','one'];state.repeatMode=modes[(modes.indexOf(state.repeatMode)+1)%modes.length];
-  audio.setRepeat(state.repeatMode==='one');render();
+  audio.setRepeat(state.repeatMode==='one');persistPlaybackSnapshot(true);render();
   toast(state.repeatMode==='off'?'Повтор выключен.':state.repeatMode==='all'?'Повтор очереди включён.':'Повтор текущего трека включён.');
 }
 function toggleShuffle(){
@@ -586,7 +663,7 @@ function toggleShuffle(){
     state.playbackQueue=state.currentId&&base.includes(state.currentId)?[state.currentId,...base.filter(id=>id!==state.currentId)]:[...base];
     state.shuffleBackup=[];
   }
-  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast(state.shuffle?'Перемешивание включено.':'Исходный порядок восстановлен.');
+  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);persistPlaybackSnapshot(true);render();toast(state.shuffle?'Перемешивание включено.':'Исходный порядок восстановлен.');
 }
 function queueTrackNext(id){
   const selected=state.tracks.find(track=>track.id===id);
@@ -610,16 +687,16 @@ function queueTrackNext(id){
     backup.splice(backupAt<0?0:backupAt+1,0,id);
     state.shuffleBackup=backup;
   }
-  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();toast('Трек добавлен следующим в очередь.');
+  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);persistPlaybackSnapshot(true);render();toast('Трек добавлен следующим в очередь.');
 }
 function removeQueuedTrack(id){
   if(id===state.currentId){toast('Текущий трек нельзя убрать из очереди до остановки.');return;}
   state.playbackQueue=state.playbackQueue.filter(trackId=>trackId!==id);
   state.shuffleBackup=state.shuffleBackup.filter(trackId=>trackId!==id);
-  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);render();
+  state.playbackIndex=state.playbackQueue.indexOf(state.currentId);persistPlaybackSnapshot(true);render();
 }
 function clearPlaybackQueue(){
-  state.playbackQueue=state.currentId?[state.currentId]:[];state.shuffleBackup=[];state.playbackIndex=state.currentId?0:-1;render();toast('Очередь очищена. Текущий трек оставлен.');
+  state.playbackQueue=state.currentId?[state.currentId]:[];state.shuffleBackup=[];state.playbackIndex=state.currentId?0:-1;persistPlaybackSnapshot(true);render();toast('Очередь очищена. Текущий трек оставлен.');
 }
 function selectedTracks() {
   const ids = selectedInOrder(state.selectedTrackIds, state.tracks.map(track => track.id));
@@ -651,6 +728,7 @@ function addSelectedTracksToQueue() {
   state.shuffleBackup = state.shuffle ? [...unique] : [];
   state.playbackQueue = state.shuffle ? shuffleQueue(unique, currentId) : unique;
   state.playbackIndex = currentId ? state.playbackQueue.indexOf(currentId) : -1;
+  persistPlaybackSnapshot(true);
   const skipped = selected.length - playable.length;
   clearTrackSelection(false);
   render();
@@ -709,42 +787,6 @@ function exportSelectedTracks() {
     toast('Не удалось экспортировать подборку: ' + (error.message || error));
   }
 }
-async function deleteSelectedTracks() {
-  if (!desktopRuntime) return;
-  const selected = selectedTracks();
-  if (!selected.length) { toast('Сначала выбери композиции.'); return; }
-  const ids = [...new Set(selected.map(track => track.id))];
-  if (!confirm('Удалить ' + ids.length + ' выбранных записей из медиатеки? Локальные аудиофайлы будут удалены без возможности отмены.')) return;
-  try {
-    await libraryStore.removeMany(ids);
-    const removed = new Set(ids);
-    if (state.currentId && removed.has(state.currentId)) {
-      playbackRequests.invalidate();
-      audio.stop();
-      state.currentId = null;
-    }
-    if (state.lyricsTrackId && removed.has(state.lyricsTrackId)) {
-      state.lyricsOpen = false;
-      state.lyricsTrackId = null;
-      state.activeLyric = -1;
-    }
-    state.tracks = state.tracks.filter(track => !removed.has(track.id));
-    state.favorites = state.favorites.filter(id => !removed.has(id));
-    state.playlists = state.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(id => !removed.has(id)) }));
-    state.playbackQueue = state.playbackQueue.filter(id => !removed.has(id));
-    state.shuffleBackup = state.shuffleBackup.filter(id => !removed.has(id));
-    state.playHistory = state.playHistory.filter(entry => !removed.has(entry.trackId));
-    state.playbackIndex = state.playbackQueue.indexOf(state.currentId);
-    state.selectedTrackIds.clear();
-    writeLocal('favorites', state.favorites);
-    writeLocal('playlists', state.playlists);
-    writeLocal('play-history', state.playHistory);
-    render();
-    toast('Удалено из медиатеки: ' + ids.length + '. Хранилище освобождено.');
-  } catch (error) {
-    toast('Не удалось удалить выбранные записи: ' + (error?.message || error));
-  }
-}
 function toggleFavorite(id) {
   state.favorites = state.favorites.includes(id) ? state.favorites.filter(value => value !== id) : [...state.favorites, id].slice(0,5000);
   writeLocal('favorites', state.favorites); persistCloud('favorites', state.favorites); render();
@@ -796,6 +838,7 @@ async function deleteLibraryTrack(id) {
     state.playHistory = state.playHistory.filter(entry => entry.trackId !== id);
     state.shuffleBackup = state.shuffleBackup.filter(trackId => trackId !== id);
     state.playbackIndex = state.playbackQueue.indexOf(state.currentId);
+    persistPlaybackSnapshot(true);
     writeLocal('favorites', state.favorites);
     writeLocal('playlists', state.playlists);
     writeLocal('play-history', state.playHistory);
@@ -819,6 +862,7 @@ async function deleteSelectedTracks() {
       playbackRequests.invalidate();
       audio.stop();
       state.currentId = null;
+      clearSavedResume();
     }
     if (state.lyricsTrackId && removed.has(state.lyricsTrackId)) {
       state.lyricsOpen = false;
@@ -832,6 +876,7 @@ async function deleteSelectedTracks() {
     state.shuffleBackup = state.shuffleBackup.filter(id => !removed.has(id));
     state.playHistory = state.playHistory.filter(entry => !removed.has(entry.trackId));
     state.playbackIndex = state.playbackQueue.indexOf(state.currentId);
+    persistPlaybackSnapshot(true);
     state.selectedTrackIds.clear();
     writeLocal('favorites', state.favorites);
     writeLocal('playlists', state.playlists);
@@ -1068,31 +1113,102 @@ function installMediaSessionHandlers(){
   };
   for(const [action,handler] of Object.entries(handlers))try{navigator.mediaSession.setActionHandler(action,handler);}catch{}
 }
-function compareVersions(left,right){
-  const a=String(left).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
-  const b=String(right).match(/\d+(?:\.\d+){1,3}/)?.[0].split('.').map(Number)||[0];
-  for(let i=0;i<Math.max(a.length,b.length);i++){const diff=(a[i]||0)-(b[i]||0);if(diff)return Math.sign(diff);}
-  return 0;
+async function fetchUpdateDocument(url) {
+  if (url !== UPDATE_MANIFEST_URL && url !== RELEASES_API_URL) throw new TypeError('Недоверенный источник обновлений.');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error('GitHub вернул HTTP ' + response.status + '.');
+    const finalUrl = response.url ? new URL(response.url) : new URL(url);
+    if (finalUrl.origin !== new URL(url).origin) throw new Error('Источник обновлений перенаправил запрос на другой домен.');
+    const body = await response.text();
+    if (new Blob([body]).size > 65536) throw new RangeError('Ответ сервера обновлений слишком большой.');
+    return JSON.parse(body);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
-async function checkForUpdates(){
-  const status=$('#update-status');if(!status)return;
-  status.textContent='Проверяем последнюю опубликованную версию…';
-  try{
-    let latest=null,source='GitHub Releases';
-    const release=await fetch('https://api.github.com/repos/dimasupercell947-hub/qwemu/releases/latest',{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
-    if(release.ok){const data=await release.json();latest=String(data.tag_name||'').replace(/^v/i,'');}
-    else if(release.status===404){
-      source='main';
-      const response=await fetch('https://raw.githubusercontent.com/dimasupercell947-hub/qwemu/main/package.json',{cache:'no-store'});
-      if(!response.ok)throw new Error('GitHub вернул '+response.status);
-      latest=String((await response.json()).version||'');
-    }else throw new Error('GitHub API: '+release.status);
-    if(!latest||!/^\d+(?:\.\d+){1,3}$/.test(latest))throw new Error('Не удалось распознать версию.');
-    state.updateStatus=compareVersions(latest,APP_VERSION)>0?('Доступна версия '+latest+' (источник: '+source+'). Открой страницу релизов, чтобы получить официальный установщик.'):compareVersions(latest,APP_VERSION)===0?('Установлена актуальная версия '+APP_VERSION+' (проверено по '+source+').'):('Основная ветка пока версии '+latest+'. Установлена '+APP_VERSION+' — она новее main; страницу релизов можно проверить вручную.');
-    status.textContent=state.updateStatus;
-    if(compareVersions(latest,APP_VERSION)>0)status.innerHTML=escapeHtml(state.updateStatus)+' <a href="https://github.com/dimasupercell947-hub/qwemu/releases" target="_blank" rel="noopener noreferrer">Релизы</a>';
-  }catch(error){state.updateStatus='Проверка не удалась: '+(error.message||error);status.textContent=state.updateStatus;}
+function showUpdateNotice(version) {
+  const host = document.querySelector('.main-area');
+  if (!host) return;
+  let notice = $('#update-notice');
+  if (!notice) {
+    notice = document.createElement('aside');
+    notice.id = 'update-notice';
+    notice.className = 'update-notice';
+    notice.setAttribute('role', 'status');
+    const copy = document.createElement('div');
+    copy.className = 'update-notice-copy';
+    const title = document.createElement('strong');
+    title.className = 'update-notice-title';
+    const description = document.createElement('span');
+    description.className = 'update-notice-description';
+    copy.append(title, description);
+    const actions = document.createElement('div');
+    actions.className = 'update-notice-actions';
+    const download = document.createElement('a');
+    download.className = 'update-notice-download';
+    download.href = RELEASES_URL;
+    download.target = '_blank';
+    download.rel = 'noopener noreferrer';
+    download.textContent = 'Открыть релиз';
+    const dismiss = document.createElement('button');
+    dismiss.className = 'update-notice-dismiss';
+    dismiss.type = 'button';
+    dismiss.dataset.action = 'dismiss-update';
+    dismiss.setAttribute('aria-label', 'Скрыть уведомление об обновлении');
+    dismiss.textContent = '×';
+    actions.append(download, dismiss);
+    notice.append(copy, actions);
+    host.insertBefore(notice, $('#view'));
+  }
+  notice.querySelector('.update-notice-title').textContent = 'Доступно обновление ' + version;
+  notice.querySelector('.update-notice-description').textContent = 'Новая стабильная версия QWEMU MUSIC опубликована на GitHub.';
 }
+async function checkForUpdates({ silent = false } = {}) {
+  const status = $('#update-status');
+  if (status) status.textContent = 'Проверяем опубликованные стабильные версии…';
+  try {
+    const sources = await Promise.allSettled([
+      fetchUpdateDocument(UPDATE_MANIFEST_URL).then(data => ({ version: parseStableVersion(data.version), source: 'манифест' })),
+      fetchUpdateDocument(RELEASES_API_URL).then(data => ({ version: parseStableVersion(String(data.tag_name || '').replace(/^v/i, '')), source: 'GitHub Releases' }))
+    ]);
+    const candidates = sources.filter(item => item.status === 'fulfilled').map(item => item.value);
+    if (!candidates.length) {
+      const reason = sources.find(item => item.status === 'rejected')?.reason;
+      throw reason instanceof Error ? reason : new Error('Оба источника обновлений недоступны.');
+    }
+    candidates.sort((left, right) => compareStableVersions(right.version, left.version));
+    const latest = candidates[0];
+    const comparison = compareStableVersions(latest.version, APP_VERSION);
+    const latestText = latest.version.join('.');
+    if (comparison > 0) {
+      state.updateStatus = 'Доступна версия ' + latestText + ' (источник: ' + latest.source + '). Установщик откроется на официальной странице релизов.';
+      showUpdateNotice(latestText);
+    } else {
+      $('#update-notice')?.remove();
+      state.updateStatus = comparison === 0
+        ? 'Установлена актуальная версия ' + APP_VERSION + '. Проверено: ' + latest.source + '.'
+        : 'Установлена версия ' + APP_VERSION + '. Публичная стабильная версия пока не новее установленной (' + latestText + ').';
+    }
+    if (status) status.textContent = state.updateStatus;
+    if (!silent) toast(state.updateStatus);
+    return { available: comparison > 0, version: latestText };
+  } catch (error) {
+    state.updateStatus = 'Не удалось проверить обновления: ' + (error?.message || error);
+    if (status) status.textContent = state.updateStatus;
+    if (!silent) toast(state.updateStatus);
+    return { available: false, error };
+  }
+}
+
 function exportPlaylist(id){
   const playlist=state.playlists.find(item=>item.id===id);if(!playlist)return;
   try{
@@ -1120,6 +1236,90 @@ function clearHistory(){
   if(!confirm('Очистить историю прослушивания? Медиатека и плейлисты не изменятся.'))return;
   state.playHistory=[];writeLocal('play-history',state.playHistory);render();toast('История прослушивания очищена.');
 }
+function exportProfileBackup() {
+  try {
+    const backup = createBackup({
+      appVersion: APP_VERSION,
+      tracks: state.tracks,
+      favorites: state.favorites,
+      playlists: state.playlists,
+      settings: state.settings,
+      playHistory: state.playHistory,
+      sortMode: state.sortMode
+    });
+    const blob = new Blob([JSON.stringify(backup, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'QWEMU-MUSIC-Backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Резервная копия экспортирована. Аудиофайлы в неё не входят.');
+  } catch (error) {
+    toast('Не удалось создать резервную копию: ' + (error.message || error));
+  }
+}
+async function importProfileBackup(file) {
+  if (!(file instanceof File) || file.size <= 0 || file.size > 8 * 1024 * 1024) {
+    toast('Выбери JSON-файл резервной копии размером не более 8 МиБ.');
+    return;
+  }
+  try {
+    const backup = parseBackup(await file.text());
+    if (!confirm('Восстановить резервную копию QWEMU? Метаданные будут объединены с текущей медиатекой. Аудиофайлы не импортируются.')) return;
+    let updated = 0, linksAdded = 0, missingAudio = 0, failed = 0, rejectedByLimit = 0;
+    const byId = new Map(state.tracks.map(track => [track.id, track]));
+    for (const imported of backup.tracks) {
+      const existing = byId.get(imported.id);
+      if (existing) {
+        const metadata = { id: existing.id, title: imported.title, artist: imported.artist, album: imported.album, lyrics: imported.lyrics };
+        try {
+          if (desktopRuntime) await libraryStore.updateMetadata(metadata);
+          Object.assign(existing, metadata);
+          updated += 1;
+        } catch (error) {
+          failed += 1;
+          console.warn('QWEMU не смог восстановить метаданные трека:', imported.id, error);
+        }
+        continue;
+      }
+      if (!imported.url && !imported.externalUrl) { missingAudio += 1; continue; }
+      if (state.tracks.length >= 5000) { rejectedByLimit += 1; continue; }
+      const classified = classifyMusicUrl(imported.url || imported.externalUrl);
+      if (!classified.ok) { failed += 1; continue; }
+      const restored = { ...imported, providerId: classified.serviceId, providerName: classified.serviceName, linkKind: classified.kind };
+      try {
+        if (desktopRuntime) await libraryStore.putLink(restored);
+        state.tracks.push(restored);
+        byId.set(restored.id, restored);
+        linksAdded += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn('QWEMU не смог восстановить ссылку:', imported.id, error);
+      }
+    }
+    const available = new Set(state.tracks.map(track => track.id));
+    state.favorites = backup.favorites.filter(id => available.has(id)).slice(0, 5000);
+    state.playlists = backup.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(id => available.has(id)) })).slice(0, 300);
+    state.settings = normalizeSettings(backup.settings);
+    state.playHistory = normalizePlayHistory(backup.playHistory).filter(entry => available.has(entry.trackId));
+    state.sortMode = Object.hasOwn(TRACK_SORT_MODES, backup.sortMode) ? backup.sortMode : 'added-desc';
+    state.selectedTrackIds.clear();
+    saveLocal();
+    applyTheme();
+    render();
+    const summary = ['метаданные обновлены: ' + updated, 'ссылки добавлены: ' + linksAdded];
+    if (missingAudio) summary.push('локальные файлы отсутствуют: ' + missingAudio);
+    if (failed) summary.push('ошибок: ' + failed);
+    if (rejectedByLimit) summary.push('отклонено по лимиту: ' + rejectedByLimit);
+    toast('Резервная копия обработана: ' + summary.join(' · ') + '.');
+  } catch (error) {
+    toast('Не удалось восстановить резервную копию: ' + (error.message || error));
+  }
+}
+
 async function submitAuth(event) {
   event.preventDefault(); const errorNode = $('#auth-error'); errorNode.textContent = '';
   const username = $('#auth-username').value.trim(); const password = $('#auth-password').value;
@@ -1161,7 +1361,11 @@ document.addEventListener('click', async event => {
   else if (name === 'link-preview') previewMusicLink();
   else if (name === 'add-link') await addMusicLink();
   else if (name === 'plus-demo') showPlusDemo();
-  else if (name === 'check-updates') await checkForUpdates();
+  else if (name === 'check-updates') await checkForUpdates({ silent: false });
+  else if (name === 'dismiss-update') $('#update-notice')?.remove();
+  else if (name === 'resume-session') await resumePlayback();
+  else if (name === 'clear-resume') { clearSavedResume(); state.playbackQueue = []; state.shuffleBackup = []; render(); toast('Сохранённая сессия сброшена.'); }
+  else if (name === 'export-backup') exportProfileBackup();
   else if (name === 'lyrics') { state.lyricsOpen=!state.lyricsOpen;state.lyricsTrackId=state.currentId;renderLyricsPanel(); }
   else if (name === 'lyrics-open-track') { const track=state.tracks.find(item=>item.id===id);if(track){state.lyricsTrackId=id;state.lyricsOpen=true;renderLyricsPanel();} }
   else if (name === 'lyrics-close') { state.lyricsOpen=false;state.lyricsTrackId=null;state.activeLyric=-1;renderLyricsPanel(); }
@@ -1220,6 +1424,7 @@ document.addEventListener('change', event => {
     checkbox?.focus();
     return;
   }
+  if (event.target.id === 'backup-import') { const file=event.target.files?.[0]; if(file)void importProfileBackup(file); event.target.value=''; return; }
   if (event.target.id === 'm3u-import') { const file=event.target.files?.[0]; if(file)importPlaylistFile(file); event.target.value=''; return; }
   if (event.target.id === 'sort-select') { state.sortMode=Object.hasOwn(TRACK_SORT_MODES,event.target.value)?event.target.value:'added-desc';writeLocal('sort-mode',state.sortMode);render();return; }
   if (event.target.id === 'lyrics-file') { importLyricsFile(event.target.files?.[0]); event.target.value=''; return; }
@@ -1254,7 +1459,7 @@ $('#volume').value=String(state.settings.volume); audio.setVolume($('#volume').v
 $('#volume').addEventListener('input', event => { audio.setVolume(event.target.value); state.settings.volume=Number(event.target.value); state.settingsRevision += 1; saveLocal(); });
 $('#volume').addEventListener('change', () => persistCloud('settings', state.settings));
 $('#mute').addEventListener('click', () => { const muted=audio.setMuted(!audio.isMuted()); $('#mute').innerHTML=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM17 9l4 6m0-6-4 6"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12"/></svg>'; $('#mute').setAttribute('aria-label',muted?'Включить звук':'Отключить звук'); });
-audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration);syncLyricsHighlight(status.position);updateMediaSession(state.tracks.find(track=>track.id===state.currentId)); });
+audio.on('timeupdate', () => { const status=audio.getStatus(); $('#seek').value=String(status.duration?status.position/status.duration*1000:0); $('#elapsed').textContent=formatTime(status.position); $('#duration').textContent=formatTime(status.duration);syncLyricsHighlight(status.position);updateMediaSession(state.tracks.find(track=>track.id===state.currentId));persistPlaybackSnapshot(false); });
 audio.on('loadedmetadata', () => { const track=state.tracks.find(item=>item.id===state.currentId); if(track)track.duration=audio.getStatus().duration; render(); });
 audio.on('play', render); audio.on('pause', render);
 audio.on('ended', () => { if (state.repeatMode !== 'one') advance(1); });
@@ -1294,10 +1499,11 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&audio.getStatus().playing)document.dispatchEvent(new Event('qwemu-foreground'));
 });
 installMediaSessionHandlers();
-window.addEventListener('pagehide', () => { playbackRequests.invalidate(); audio.destroy(); }, { once: true });
+window.addEventListener('pagehide', () => { persistPlaybackSnapshot(true); playbackRequests.invalidate(); audio.destroy(); }, { once: true });
 
 applyTheme(); render();
 if (desktopRuntime) {
+  void checkForUpdates({ silent: true });
   libraryRestorePromise = restoreDesktopLibrary()
     .catch(error => { toast('Не удалось восстановить медиатеку: ' + (error?.message || error)); })
     .finally(() => { libraryReady = true; render(); });

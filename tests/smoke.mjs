@@ -9,14 +9,22 @@ const read = path => readFileSync(join(root, path), 'utf8');
 
 const required = [
   'public/index.html',
+  'public/version.json',
   'public/assets/main.js',
   'public/assets/library-store.js',
   'public/assets/desktop-bridge.js',
   'public/assets/playback-queue.js',
+  'public/assets/playback-state.js',
   'public/assets/playback-request.js',
   'public/assets/serial-task-queue.js',
   'public/assets/selection-state.js',
+  'public/assets/backup-state.js',
+  'public/assets/version-state.js',
   'tests/selection-state.test.mjs',
+  'tests/playback-state.test.mjs',
+  'tests/backup-state.test.mjs',
+  'tests/version-state.test.mjs',
+  'scripts/check-version.mjs',
   'public/assets/history-state.js',
   'public/assets/track-sort.js',
   'public/assets/playlist-io.js',
@@ -44,15 +52,24 @@ for (const path of required) {
 }
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
+const packageJson = JSON.parse(read('package.json'));
+const manifest = JSON.parse(read('public/version.json'));
+const cargo = read('src-tauri/Cargo.toml');
+const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 assert.equal(config.productName, 'QWEMU MUSIC');
-assert.equal(config.version, '1.9.0');
+assert.equal(config.version, '2.0.0');
+assert.equal(packageJson.version, '2.0.0');
+assert.equal(cargoVersion, '2.0.0');
 assert.equal(config.identifier, 'com.qwemu.music.desktop');
 assert.equal(config.build.frontendDist, '../public');
 assert.deepEqual(config.bundle.targets, ['nsis', 'msi']);
 assert.ok(config.app.windows.some(window => window.label === 'main' && window.minWidth === 960));
 assert.ok(config.app.security.csp.includes("script-src 'self'"));
+assert.equal(manifest.channel, 'stable');
 
 const html = read('public/index.html');
+assert.match(html, /<meta name="app-version" content="2\.0\.0">/);
+assert.ok(html.includes('id="app-version-label"'));
 assert.ok(html.includes('assets/desktop-bridge.js'));
 assert.ok(html.includes('assets/eq.js'));
 assert.ok(html.includes('assets/ui-overhaul.css'));
@@ -76,17 +93,26 @@ for (const feature of [
   'function addSelectedTracksToPlaylist',
   'function exportSelectedTracks',
   'function deleteSelectedTracks',
+  'function persistPlaybackSnapshot',
+  'function resumePlayback',
+  'function exportProfileBackup',
+  'function importProfileBackup',
+  'function checkForUpdates',
   'state.playbackQueue',
   'function queueTrackNext',
   'function toggleShuffle',
   'function clearHistory',
   'parsePlaylistM3u',
   'recordPlay',
-  'sortTracks'
+  'sortTracks',
+  'backup-import'
 ]) {
   assert.ok(main.includes(feature), 'Missing main feature: ' + feature);
 }
+assert.equal((main.match(/async function deleteSelectedTracks\(\)/g) || []).length, 1, 'deleteSelectedTracks must be declared exactly once');
 assert.ok(!/aiff/i.test(main), 'AIFF must not be advertised');
+assert.ok(main.includes('redirect: \'error\''), 'Update requests must reject redirects');
+assert.ok(main.includes('credentials: \'omit\''), 'Update requests must not send credentials');
 
 const eq = read('public/assets/eq.js');
 for (const capability of [
@@ -109,6 +135,8 @@ assert.ok(css.includes('.qwemu-wave'));
 assert.ok(css.includes('.player{height:100px'), 'Player grid must reserve space for waveform rows');
 assert.ok(css.includes('.eq-panel'));
 assert.ok(css.includes('prefers-reduced-motion'));
+assert.ok(css.includes('.resume-card'));
+assert.ok(css.includes('.backup-actions'));
 assert.ok(css.includes('grid-template-columns:minmax(160px,1fr) minmax(270px,1.4fr) 180px'));
 assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should be represented in the preset selector');
 
@@ -123,11 +151,11 @@ assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
 assert.ok(read('public/assets/music-url.js').includes('yandex-music'));
 assert.ok(read('public/assets/audio-adapter.js').includes('shouldUseExternalElement'));
 assert.ok(read('public/assets/library-store.js').includes('providerName: classification.serviceName'));
-assert.ok(read('public/index.html').includes('id="link-sites"'));
-assert.ok(read('public/assets/ui-overhaul.css').includes('.source-catalog-chip'));
+assert.ok(html.includes('id="link-sites"'));
+assert.ok(css.includes('.source-catalog-chip'));
 assert.ok(read('public/assets/audio-formats.js').includes('AUDIO_FORMATS'));
-assert.ok(read('public/index.html').includes('id="shuffle"'));
-assert.ok(read('public/index.html').includes('id="track-dialog"'));
+assert.ok(html.includes('id="shuffle"'));
+assert.ok(html.includes('id="track-dialog"'));
 assert.ok(read('public/assets/playback-queue.js').includes('recentLimit'));
 
 const icon = readFileSync(join(root, 'src-tauri/icons/icon.ico'));
@@ -149,10 +177,8 @@ for (const [name, content] of [
 assert.ok(read('build.bat').includes('NSIS installer was not created'));
 assert.ok(read('build.bat').includes('MSI installer was not created'));
 assert.ok(read('check.bat').includes('Node.js 22 or newer'));
-assert.ok(read('src-tauri/Cargo.toml').includes('tauri = { version = "=2.12.7" }'));
-assert.ok(read('src-tauri/Cargo.toml').includes('version = "1.9.0"'));
+assert.ok(cargo.includes('tauri = { version = "=2.12.7" }'));
 assert.ok(read('src-tauri/src/main.rs').includes('qwemu_music_desktop_lib::run'));
-
-assert.equal(JSON.parse(read('package.json')).version, '1.9.0');
-assert.ok(read('public/index.html').includes('DESKTOP EDITION · 1.9.0'));
-console.log('QWEMU Desktop 1.9.0 smoke passed: ' + required.length + ' required files, EQ, playback queue, history, M3U8, metadata editing, visualizer, CSP, Tauri and build scripts.');
+assert.ok(read('.github/workflows/ci.yml').includes('QWEMU-MUSIC-Windows-2.0.0'));
+assert.ok(read('.github/workflows/release.yml').includes('Refresh public update manifest'));
+console.log('QWEMU Desktop 2.0.0 smoke passed: ' + required.length + ' required files, 10-band EQ, player, library, backup/restore, session recovery, strict updater, CSP, Tauri and Windows build configuration.');
