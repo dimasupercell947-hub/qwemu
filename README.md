@@ -1,7 +1,7 @@
 # QWEMU MUSIC Desktop
 
-**QWEMU MUSIC 2.0 — Infinity Evolution** — локальный музыкальный центр для Windows 10/11.  
-**Версия:** 2.0.0 · **Стек:** Tauri 2.12.7 · Rust · HTML/CSS/JavaScript · WebView2.
+**QWEMU MUSIC 2.0.1 — Infinity Evolution** — локальный музыкальный центр для Windows 10/11.  
+**Версия:** 2.0.1 · **Стек:** Tauri 2.12.7 · Rust · HTML/CSS/JavaScript · WebView2.
 
 ## Что входит в 2.0
 

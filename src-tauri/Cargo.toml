@@ -1,6 +1,6 @@
 [package]
 name = "qwemu-music-desktop"
-version = "2.0.0"
+version = "2.0.1"
 description = "QWEMU MUSIC Desktop for Windows"
 authors = ["QWEMU"]
 edition = "2021"

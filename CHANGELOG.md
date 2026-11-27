@@ -1,5 +1,12 @@
 # История изменений QWEMU MUSIC Desktop
 
+## 2.0.1 — Signed In-App Updates
+
+- Встроенный Tauri Updater: проверка версий, загрузка, проверка цифровой подписи и установка из приложения.
+- Release workflow публикует подписанный Windows NSIS-пакет и `latest.json` для автоматического обновления.
+- Исправлена проверка локальных DNS-имён с завершающей точкой (`localhost.`, `*.local.`).
+
+
 ## 2.0.0 — Infinity Evolution
 
 ### Library Studio и управление данными
