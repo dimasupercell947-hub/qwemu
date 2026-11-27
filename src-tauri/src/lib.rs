@@ -101,7 +101,8 @@ async fn install_update(app: tauri::AppHandle, expected_version: String) -> Resu
     update
         .download_and_install(
             move |chunk_length, content_length| {
-                let current = chunk_counter.fetch_add(chunk_length as u64, Ordering::Relaxed) + chunk_length as u64;
+                let current = chunk_counter.fetch_add(chunk_length as u64, Ordering::Relaxed)
+                    + chunk_length as u64;
                 let _ = progress_app.emit(
                     "qwemu-updater-progress",
                     UpdateProgress {
