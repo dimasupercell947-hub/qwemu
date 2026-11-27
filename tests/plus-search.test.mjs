@@ -8,7 +8,7 @@ const sample = {
   foreign_landing_url: 'https://source.example.org/track/123',
   license: 'by', license_version: '4.0',
   license_url: 'https://creativecommons.org/licenses/by/4.0/',
-  filetype: 'mp3', duration: 182, filesize: 5000000
+  filetype: 'mp3', duration: 182000, filesize: 5000000
 };
 
 test('builds a bounded Openverse request with commercial-use filters', () => {
@@ -71,6 +71,7 @@ test('search omits credentials, normalizes results and forwards abort signals', 
   assert.equal(result.resultCount, 42);
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0].id, 'openverse-123');
+  assert.equal(result.results[0].duration, 182);
 });
 
 test('surfaces source rate limiting with a useful message', async () => {
