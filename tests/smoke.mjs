@@ -146,7 +146,7 @@ assert.ok(css.includes('prefers-reduced-motion'));
 assert.ok(css.includes('.resume-card'));
 assert.ok(css.includes('.backup-actions'));
 assert.ok(css.includes('.track-row.has-selection'), 'selection grid must only apply when the checkbox is present');
-assert.ok(css.includes('.track-row{grid-template-columns:34px minmax(0,1fr)}'), 'Home rows must retain a readable metadata column');
+assert.ok(css.includes('.track-row{grid-template-columns:34px minmax(0,1fr);gap:7px}'), 'Home rows must retain a readable metadata column and spacing');
 assert.ok(css.includes('grid-template-columns:minmax(160px,1fr) minmax(270px,1.4fr) 180px'));
 assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should be represented in the preset selector');
 
