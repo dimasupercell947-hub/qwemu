@@ -1,4 +1,5 @@
 import { classifyMusicUrl } from './music-url.js';
+import { isLicensedOpenverseTrack } from './plus-search.js';
 
 const DB_NAME = 'qwemu.music.desktop.library';
 const DB_VERSION = 1;
@@ -62,7 +63,10 @@ export class LibraryStore {
     }
 
     const value = track.url || track.externalUrl;
-    const classification = classifyMusicUrl(value);
+    const openverseTrack = track.providerId === 'openverse' && isLicensedOpenverseTrack(track);
+    const classification = openverseTrack
+      ? { ok: true, kind: 'direct-audio', serviceId: 'openverse', serviceName: 'Openverse', url: value }
+      : classifyMusicUrl(value);
     if (!classification.ok) {
       throw new TypeError(classification.reason || 'Ссылка не прошла проверку.');
     }
@@ -89,6 +93,16 @@ export class LibraryStore {
       duration: 0,
       addedAt: Number(track.addedAt) || Date.now()
     };
+
+    if (openverseTrack) {
+      metadata.openverseId = String(track.openverseId || track.id).slice(0, 180);
+      metadata.sourceUrl = track.sourceUrl;
+      metadata.licenseCode = String(track.licenseCode).toLowerCase();
+      metadata.licenseVersion = String(track.licenseVersion || '').slice(0, 20);
+      metadata.licenseUrl = track.licenseUrl;
+      metadata.attribution = String(track.attribution || '').slice(0, 1200);
+      metadata.fileType = String(track.fileType || '').slice(0, 40);
+    }
 
     if (classification.kind === 'direct-audio') metadata.url = classification.url;
     else metadata.externalUrl = classification.url;

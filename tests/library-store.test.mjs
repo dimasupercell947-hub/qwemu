@@ -138,3 +138,31 @@ test('LibraryStore persists metadata and audio, and deletes both atomically', as
     else globalThis.indexedDB = original;
   }
 });
+
+test('LibraryStore persists Openverse stream URL and Creative Commons attribution', async () => {
+  const original = globalThis.indexedDB;
+  globalThis.indexedDB = createIndexedDB();
+  try {
+    const store = new LibraryStore();
+    const track = {
+      id: 'openverse-test-1', openverseId: 'openverse-test-1',
+      name: 'Licensed song', title: 'Licensed song', artist: 'Sample Artist',
+      album: 'Openverse', lyrics: '', size: 1024, duration: 42,
+      providerId: 'openverse', providerName: 'Openverse',
+      url: 'https://cdn.example.org/audio/song.mp3',
+      sourceUrl: 'https://source.example.org/track/1',
+      licenseCode: 'by', licenseVersion: '4.0',
+      licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+      attribution: 'Licensed song · Sample Artist · CC BY 4.0'
+    };
+    await store.putLink(track);
+    const [saved] = await store.list();
+    assert.equal(saved.url, track.url);
+    assert.equal(saved.sourceUrl, track.sourceUrl);
+    assert.equal(saved.licenseCode, 'by');
+    assert.equal(saved.licenseVersion, '4.0');
+    assert.equal(saved.licenseUrl, track.licenseUrl);
+    assert.equal(saved.attribution, track.attribution);
+    assert.equal(saved.providerId, 'openverse');
+  } finally { globalThis.indexedDB = original; }
+});
