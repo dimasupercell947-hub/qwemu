@@ -102,6 +102,8 @@ export class LibraryStore {
       metadata.licenseUrl = track.licenseUrl;
       metadata.attribution = String(track.attribution || '').slice(0, 1200);
       metadata.fileType = String(track.fileType || '').slice(0, 40);
+      metadata.size = Math.max(0, Number(track.size) || 0);
+      metadata.duration = Math.max(0, Number(track.duration) || 0);
     }
 
     if (classification.kind === 'direct-audio') metadata.url = classification.url;
