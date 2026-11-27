@@ -15,7 +15,7 @@ import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
 import { toggleSelection, toggleVisibleSelection, selectedInOrder } from './selection-state.js';
-import { createBackup, parseBackup, mergeBackupCollections } from './backup-state.js';
+import { createBackup, parseBackup, serializeBackup, mergeBackupCollections } from './backup-state.js';
 import { buildBulkQueueUpdate, resolveTransportQueue, resolveResumeQueue, shuffleUpcomingQueue, restoreUnshuffledQueue } from './queue-state.js';
 import { createPlaybackSnapshot, restorePlaybackSnapshot } from './playback-state.js';
 import { compareStableVersions, parseStableVersion } from './version-state.js';
@@ -1292,7 +1292,7 @@ function exportProfileBackup() {
       playHistory: state.playHistory,
       sortMode: state.sortMode
     });
-    const blob = new Blob([JSON.stringify(backup, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
+    const blob = new Blob([serializeBackup(backup)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;

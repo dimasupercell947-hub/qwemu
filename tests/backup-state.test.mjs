@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBackup, parseBackup, mergeBackupCollections, BACKUP_FORMAT } from '../public/assets/backup-state.js';
+import { createBackup, parseBackup, serializeBackup, mergeBackupCollections, BACKUP_FORMAT, MAX_BACKUP_BYTES } from '../public/assets/backup-state.js';
 
 const sample = {
   appVersion: '2.0.0',
@@ -103,4 +103,15 @@ test('accepts backups from earlier app versions without replacing current EQ set
     tracks: [{ id: 'old-track', title: 'Old track' }]
   };
   assert.equal(parseBackup(JSON.stringify(oldBackup)).eqSettings, null);
+});
+
+test('serializes portable backups in compact JSON within the same import size limit', () => {
+  const backup = createBackup({
+    tracks: [{ id: 'large-metadata', title: 'A'.repeat(1200), lyrics: 'line '.repeat(2000) }]
+  });
+  const serialized = serializeBackup(backup);
+  assert.equal(serialized, JSON.stringify(backup));
+  assert.ok(new TextEncoder().encode(serialized).byteLength <= MAX_BACKUP_BYTES);
+  assert.deepEqual(parseBackup(serialized).tracks[0].id, 'large-metadata');
+  assert.throws(() => serializeBackup({ format: 'other', schemaVersion: 1 }), TypeError);
 });

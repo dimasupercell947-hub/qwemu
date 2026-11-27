@@ -188,6 +188,16 @@ export function createBackup({
   return backup;
 }
 
+export function serializeBackup(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      value.format !== BACKUP_FORMAT || value.schemaVersion !== BACKUP_SCHEMA_VERSION) {
+    throw new TypeError('Нельзя экспортировать резервную копию неизвестного формата.');
+  }
+  const source = JSON.stringify(value);
+  checkSize(source);
+  return source;
+}
+
 export function parseBackup(source) {
   if (typeof source !== 'string') throw new TypeError('Содержимое резервной копии должно быть текстом JSON.');
   checkSize(source);
