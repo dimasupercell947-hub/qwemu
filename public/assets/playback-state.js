@@ -22,14 +22,24 @@ export function createPlaybackSnapshot({
   position = 0,
   shuffle = false,
   shuffleBackupIds = [],
+  pendingResume = null,
   repeatMode = 'off'
 } = {}) {
   const queue = cleanIds(queueIds);
-  const current = typeof currentId === 'string' && currentId.trim() && currentId.length <= 256
+  const pending = pendingResume && typeof pendingResume === 'object' ? pendingResume : null;
+  const activeId = typeof currentId === 'string' && currentId.trim() && currentId.length <= 256
     ? currentId.trim()
     : null;
+  const pendingId = typeof pending?.currentId === 'string' && pending.currentId.trim() && pending.currentId.length <= 256
+    ? pending.currentId.trim()
+    : null;
+  const current = activeId || pendingId;
+  const effectivePosition = activeId
+    ? position
+    : (pendingId ? pending.position : position);
+  if (!queue.length && pending && Array.isArray(pending.queueIds)) queue.push(...cleanIds(pending.queueIds));
   if (current && !queue.includes(current)) queue.unshift(current);
-  const numericPosition = Number(position);
+  const numericPosition = Number(effectivePosition);
   return {
     schemaVersion: 1,
     queueIds: queue,

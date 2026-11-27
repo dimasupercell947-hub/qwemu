@@ -15,7 +15,8 @@ import { AUDIO_ACCEPT, supportsAudioFile } from './audio-formats.js';
 import { PlaybackRequestGate } from './playback-request.js';
 import { SerialTaskQueue } from './serial-task-queue.js';
 import { toggleSelection, toggleVisibleSelection, selectedInOrder } from './selection-state.js';
-import { createBackup, parseBackup } from './backup-state.js';
+import { createBackup, parseBackup, mergeBackupCollections } from './backup-state.js';
+import { buildBulkQueueUpdate, resolveTransportQueue, resolveResumeQueue, shuffleUpcomingQueue, restoreUnshuffledQueue } from './queue-state.js';
 import { createPlaybackSnapshot, restorePlaybackSnapshot } from './playback-state.js';
 import { compareStableVersions, parseStableVersion } from './version-state.js';
 
@@ -209,7 +210,7 @@ function renderTracks(list, showBulkActions = true) {
     const selectionControl = showBulkActions
       ? '<input class="track-select" type="checkbox" data-track-select data-id="' + escapeHtml(track.id) + '" aria-label="Выбрать ' + escapeHtml(track.title) + '" ' + (state.selectedTrackIds.has(track.id) ? 'checked' : '') + '>'
       : '';
-    return '<article class="track-row ' + (track.id === state.currentId ? 'is-playing ' : '') + (state.selectedTrackIds.has(track.id) ? 'is-selected' : '') + '">' +
+    return '<article class="track-row' + (showBulkActions ? ' has-selection' : '') + ' ' + (track.id === state.currentId ? 'is-playing ' : '') + (state.selectedTrackIds.has(track.id) ? 'is-selected' : '') + '">' +
       selectionControl +
       '<div class="track-thumb" aria-hidden="true">♫</div><div class="track-meta"><b>' + escapeHtml(track.title) + '</b><span>' + escapeHtml(details + sourceBadge) + '</span></div>' +
       '<div class="row-actions">' + actions + '</div></article>';
@@ -449,17 +450,19 @@ async function loadCloud() {
   }
 }
 function persistPlaybackSnapshot(force = false) {
-  if (!state.currentId && !state.playbackQueue.length) return;
+  const pending = !state.currentId ? state.resumePoint : null;
+  if (!state.currentId && !state.playbackQueue.length && !pending) return;
   const status = audio.getStatus();
-  const position = state.currentId ? status.position : 0;
+  const position = state.currentId ? status.position : (pending?.position ?? 0);
   const bucket = state.currentId ? Math.floor(position / 5) : -1;
   if (!force && state.currentId && bucket === lastPlaybackSaveBucket) return;
   const snapshot = createPlaybackSnapshot({
-    queueIds: state.playbackQueue,
-    currentId: state.currentId,
+    queueIds: state.playbackQueue.length ? state.playbackQueue : (pending?.queueIds || []),
+    currentId: state.currentId || pending?.currentId || null,
     position,
     shuffle: state.shuffle,
-    shuffleBackupIds: state.shuffleBackup,
+    shuffleBackupIds: state.shuffleBackup.length ? state.shuffleBackup : (pending?.shuffleBackupIds || []),
+    pendingResume: pending,
     repeatMode: state.repeatMode
   });
   try {
@@ -584,9 +587,16 @@ async function addFilesNow(fileList) {
 }
 function getPlaybackQueue() {
   const playable=state.tracks.filter(track=>!track.externalUrl);
-  if(state.page==='queue')return state.playbackQueue.filter(id=>playable.some(track=>track.id===id));
-  if(state.page==='history')return visibleTracks().filter(track=>!track.externalUrl).map(track=>track.id);
-  return buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:playable,favorites:state.favorites.filter(id=>playable.some(track=>track.id===id)),search:state.search});
+  const playableIds=new Set(playable.map(track=>track.id));
+  const pageQueue=state.page==='history'
+    ? visibleTracks().filter(track=>!track.externalUrl).map(track=>track.id)
+    : buildPlaybackQueue({page:state.page,activePlaylist:state.activePlaylist,playlists:state.playlists,tracks:playable,favorites:state.favorites.filter(id=>playableIds.has(id)),search:state.search});
+  return resolveTransportQueue({
+    page:state.page,
+    currentId:state.currentId,
+    preparedQueue:state.playbackQueue.filter(id=>playableIds.has(id)),
+    pageQueue
+  });
 }
 
 async function playTrack(id, queueIds = null) {
@@ -622,22 +632,33 @@ async function playTrack(id, queueIds = null) {
 async function resumePlayback() {
   const saved = state.resumePoint;
   const track = saved?.currentId ? state.tracks.find(item => item.id === saved.currentId) : null;
-  if (!saved || !track || track.externalUrl) {
-    toast('Сохранённая композиция больше недоступна.');
+  const available = new Set(state.tracks.filter(item => !item.externalUrl).map(item => item.id));
+  const liveQueue = resolveResumeQueue({
+    savedCurrentId: saved?.currentId,
+    liveQueue: state.playbackQueue,
+    availableTrackIds: available
+  });
+  if (!saved || !track || track.externalUrl || !liveQueue) {
+    toast('Сохранённая композиция удалена или больше недоступна. Очередь не будет восстановлена из старой копии.');
     clearSavedResume();
     return;
   }
+  state.playbackQueue = liveQueue;
   state.resumePoint = null;
-  state.shuffle = saved.shuffle;
-  state.repeatMode = saved.repeatMode;
-  audio.setRepeat(saved.repeatMode === 'one');
-  await playTrack(saved.currentId, saved.queueIds);
+  audio.setRepeat(state.repeatMode === 'one');
+  await playTrack(saved.currentId, liveQueue);
   if (state.currentId === saved.currentId) {
     audio.seek(saved.position);
     persistPlaybackSnapshot(true);
     render();
   } else {
-    state.resumePoint = saved;
+    state.resumePoint = {
+      ...saved,
+      queueIds: [...state.playbackQueue],
+      shuffle: state.shuffle,
+      shuffleBackupIds: [...state.shuffleBackup],
+      repeatMode: state.repeatMode
+    };
     render();
   }
 }
@@ -658,11 +679,13 @@ function toggleRepeat(){
 }
 function toggleShuffle(){
   state.shuffle=!state.shuffle;
-  if(state.shuffle){state.shuffleBackup=[...state.playbackQueue];state.playbackQueue=shuffleQueue(state.playbackQueue,state.currentId);}
+  if(state.shuffle){
+    state.shuffleBackup=[...state.playbackQueue];
+    state.playbackQueue=shuffleUpcomingQueue(state.playbackQueue,state.currentId);
+  }
   else{
     const backup=state.shuffleBackup.filter(id=>state.tracks.some(track=>track.id===id));
-    const base=backup.length?backup:(state.page==='queue'?state.playbackQueue:getPlaybackQueue());
-    state.playbackQueue=state.currentId&&base.includes(state.currentId)?[state.currentId,...base.filter(id=>id!==state.currentId)]:[...base];
+    state.playbackQueue=restoreUnshuffledQueue(backup,state.playbackQueue);
     state.shuffleBackup=[];
   }
   state.playbackIndex=state.playbackQueue.indexOf(state.currentId);persistPlaybackSnapshot(true);render();toast(state.shuffle?'Перемешивание включено.':'Исходный порядок восстановлен.');
@@ -695,9 +718,14 @@ function removeQueuedTrack(id){
   if(id===state.currentId){toast('Текущий трек нельзя убрать из очереди до остановки.');return;}
   state.playbackQueue=state.playbackQueue.filter(trackId=>trackId!==id);
   state.shuffleBackup=state.shuffleBackup.filter(trackId=>trackId!==id);
+  if(state.resumePoint?.currentId===id){
+    clearSavedResume();
+    toast('Сохранённый трек удалён из очереди. Продолжение сессии отменено.');
+  }
   state.playbackIndex=state.playbackQueue.indexOf(state.currentId);persistPlaybackSnapshot(true);render();
 }
 function clearPlaybackQueue(){
+  if(!state.currentId&&state.resumePoint)clearSavedResume();
   state.playbackQueue=state.currentId?[state.currentId]:[];state.shuffleBackup=[];state.playbackIndex=state.currentId?0:-1;persistPlaybackSnapshot(true);render();toast('Очередь очищена. Текущий трек оставлен.');
 }
 function selectedTracks() {
@@ -722,19 +750,21 @@ function addSelectedTracksToQueue() {
   const currentId = validIds.has(state.currentId) ? state.currentId : null;
   const existing = state.playbackQueue.filter(id => validIds.has(id));
   const selectedIds = playable.map(track => track.id);
-  const newCount = selectedIds.filter(id => !existing.includes(id) && id !== currentId).length;
-  const ordered = currentId
-    ? [currentId, ...selectedIds, ...existing.filter(id => id !== currentId)]
-    : [...selectedIds, ...existing];
-  const unique = [...new Set(ordered)];
-  state.shuffleBackup = state.shuffle ? [...unique] : [];
-  state.playbackQueue = state.shuffle ? shuffleQueue(unique, currentId) : unique;
+  const update = buildBulkQueueUpdate({
+    queueIds: existing,
+    currentId,
+    selectedIds,
+    shuffle: state.shuffle,
+    shuffleBackupIds: state.shuffleBackup
+  });
+  state.shuffleBackup = update.shuffleBackupIds;
+  state.playbackQueue = update.queueIds;
   state.playbackIndex = currentId ? state.playbackQueue.indexOf(currentId) : -1;
   persistPlaybackSnapshot(true);
   const skipped = selected.length - playable.length;
   clearTrackSelection(false);
   render();
-  toast('Добавлено в очередь: ' + newCount + (skipped ? '. Закладок пропущено: ' + skipped : '') + '.');
+  toast('Добавлено в очередь: ' + update.addedCount + (skipped ? '. Закладок пропущено: ' + skipped : '') + '.');
 }
 function addSelectedTracksToPlaylist() {
   const selected = selectedTracks();
@@ -833,6 +863,7 @@ async function deleteLibraryTrack(id) {
   try {
     await libraryStore.remove(id);
     if (state.currentId === id) stopPlayback();
+    else if (state.resumePoint?.currentId === id) clearSavedResume();
     state.tracks = state.tracks.filter(item => item.id !== id);
     state.favorites = state.favorites.filter(item => item !== id);
     state.playlists = state.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(trackId => trackId !== id) }));
@@ -1258,7 +1289,7 @@ function exportProfileBackup() {
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Резервная копия экспортирована. Аудиофайлы в неё не входят.');
+    toast('Резервная копия экспортирована. Аудиофайлы не включены.' + (backup.warnings?.length ? ' Пропущено/исправлено источников: ' + backup.warnings.length + '.' : ''));
   } catch (error) {
     toast('Не удалось создать резервную копию: ' + (error.message || error));
   }
@@ -1303,10 +1334,19 @@ async function importProfileBackup(file) {
       }
     }
     const available = new Set(state.tracks.map(track => track.id));
-    state.favorites = backup.favorites.filter(id => available.has(id)).slice(0, 5000);
-    state.playlists = backup.playlists.map(playlist => ({ ...playlist, trackIds: playlist.trackIds.filter(id => available.has(id)) })).slice(0, 300);
+    const merged = mergeBackupCollections({
+      currentFavorites: state.favorites,
+      backupFavorites: backup.favorites,
+      currentPlaylists: state.playlists,
+      backupPlaylists: backup.playlists,
+      currentHistory: state.playHistory,
+      backupHistory: backup.playHistory,
+      availableTrackIds: available
+    });
+    state.favorites = merged.favorites;
+    state.playlists = merged.playlists;
     state.settings = normalizeSettings(backup.settings);
-    state.playHistory = normalizePlayHistory(backup.playHistory).filter(entry => available.has(entry.trackId));
+    state.playHistory = merged.playHistory;
     state.sortMode = Object.hasOwn(TRACK_SORT_MODES, backup.sortMode) ? backup.sortMode : 'added-desc';
     state.selectedTrackIds.clear();
     saveLocal();
@@ -1316,6 +1356,7 @@ async function importProfileBackup(file) {
     if (missingAudio) summary.push('локальные файлы отсутствуют: ' + missingAudio);
     if (failed) summary.push('ошибок: ' + failed);
     if (rejectedByLimit) summary.push('отклонено по лимиту: ' + rejectedByLimit);
+    if (backup.warnings?.length) summary.push('предупреждений в копии: ' + backup.warnings.length);
     toast('Резервная копия обработана: ' + summary.join(' · ') + '.');
   } catch (error) {
     toast('Не удалось восстановить резервную копию: ' + (error.message || error));

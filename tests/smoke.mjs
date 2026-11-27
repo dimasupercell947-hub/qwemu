@@ -15,6 +15,7 @@ const required = [
   'public/assets/desktop-bridge.js',
   'public/assets/playback-queue.js',
   'public/assets/playback-state.js',
+  'public/assets/queue-state.js',
   'public/assets/playback-request.js',
   'public/assets/serial-task-queue.js',
   'public/assets/selection-state.js',
@@ -22,6 +23,7 @@ const required = [
   'public/assets/version-state.js',
   'tests/selection-state.test.mjs',
   'tests/playback-state.test.mjs',
+  'tests/queue-state.test.mjs',
   'tests/backup-state.test.mjs',
   'tests/version-state.test.mjs',
   'scripts/check-version.mjs',
@@ -95,6 +97,11 @@ for (const feature of [
   'function deleteSelectedTracks',
   'function persistPlaybackSnapshot',
   'function resumePlayback',
+  'buildBulkQueueUpdate',
+  'resolveTransportQueue',
+  'resolveResumeQueue',
+  'shuffleUpcomingQueue',
+  'restoreUnshuffledQueue',
   'function exportProfileBackup',
   'function importProfileBackup',
   'function checkForUpdates',
@@ -113,6 +120,7 @@ assert.equal((main.match(/async function deleteSelectedTracks\(\)/g) || []).leng
 assert.ok(!/aiff/i.test(main), 'AIFF must not be advertised');
 assert.ok(main.includes('redirect: \'error\''), 'Update requests must reject redirects');
 assert.ok(main.includes('credentials: \'omit\''), 'Update requests must not send credentials');
+assert.ok(!main.includes("' + newCount"), 'Bulk queue feedback must use the queue planner result');
 
 const eq = read('public/assets/eq.js');
 for (const capability of [
@@ -137,6 +145,8 @@ assert.ok(css.includes('.eq-panel'));
 assert.ok(css.includes('prefers-reduced-motion'));
 assert.ok(css.includes('.resume-card'));
 assert.ok(css.includes('.backup-actions'));
+assert.ok(css.includes('.track-row.has-selection'), 'selection grid must only apply when the checkbox is present');
+assert.ok(css.includes('.track-row{grid-template-columns:34px minmax(0,1fr)}'), 'Home rows must retain a readable metadata column');
 assert.ok(css.includes('grid-template-columns:minmax(160px,1fr) minmax(270px,1.4fr) 180px'));
 assert.ok(eq.includes('Свои настройки'), 'Custom EQ values should be represented in the preset selector');
 
@@ -146,6 +156,12 @@ assert.ok(read('public/assets/library-store.js').includes('removeMany'));
 assert.ok(read('public/assets/library-store.js').includes('putLink'));
 assert.ok(read('public/assets/lyrics-state.js').includes('parseLyrics'));
 assert.ok(read('public/assets/selection-state.js').includes('toggleVisibleSelection'));
+assert.ok(read('public/assets/queue-state.js').includes('buildBulkQueueUpdate'));
+assert.ok(read('public/assets/queue-state.js').includes('resolveTransportQueue'));
+assert.ok(read('public/assets/queue-state.js').includes('resolveResumeQueue'));
+assert.ok(read('public/assets/queue-state.js').includes('shuffleUpcomingQueue'));
+assert.ok(read('public/assets/queue-state.js').includes('restoreUnshuffledQueue'));
+assert.ok(read('public/assets/backup-state.js').includes('mergeBackupCollections'));
 assert.ok(read('public/assets/music-url.js').includes('classifyMusicUrl'));
 assert.ok(read('public/assets/music-url.js').includes('MUSIC_PLATFORMS'));
 assert.ok(read('public/assets/music-url.js').includes('yandex-music'));

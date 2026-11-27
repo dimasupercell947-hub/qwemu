@@ -173,3 +173,17 @@ button:disabled{cursor:not-allowed;opacity:.6}
 .backup-surface>p{max-width:920px;line-height:1.65}.backup-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.backup-actions .file-label{display:inline-flex;align-items:center;justify-content:center;position:relative;overflow:hidden;cursor:pointer}.backup-actions input[type=file]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
 .update-notice{right:24px;bottom:126px;max-width:min(500px,calc(100vw - 48px))}
 @media(max-width:700px){.resume-card{align-items:flex-start;flex-direction:column;padding:15px;gap:12px}.resume-actions{width:100%;flex-wrap:wrap}.resume-actions button{flex:1}.backup-actions>*{flex:1 1 180px}.update-notice{right:10px;bottom:178px;max-width:calc(100vw - 20px)}}
+
+
+/* 2.0.0 queue grid: rows without a selection checkbox must not reserve its column. */
+.track-row{grid-template-columns:42px minmax(0,1fr) auto}
+.track-row.has-selection{grid-template-columns:28px 42px minmax(0,1fr) auto}
+@media(max-width:1100px){
+  .track-row{grid-template-columns:38px minmax(0,1fr) auto}
+  .track-row.has-selection{grid-template-columns:26px 38px minmax(0,1fr) auto}
+}
+@media(max-width:700px){
+  .track-row{grid-template-columns:34px minmax(0,1fr);gap:7px}
+  .track-row.has-selection{grid-template-columns:24px 34px minmax(0,1fr);gap:7px}
+  .track-row .row-actions{grid-column:1/-1}
+}

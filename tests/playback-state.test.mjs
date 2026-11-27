@@ -49,3 +49,40 @@ test('ignores unsupported snapshots and caps queue length', () => {
   const snapshot = createPlaybackSnapshot({ queueIds }, null);
   assert.equal(snapshot.queueIds.length, 5000);
 });
+
+test('keeps a pending resume point when the app closes again without playback', () => {
+  const pending = {
+    currentId: 'track-b',
+    position: 187,
+    queueIds: ['track-a', 'track-b', 'track-c'],
+    shuffle: true,
+    shuffleBackupIds: ['track-a', 'track-b', 'track-c'],
+    repeatMode: 'all'
+  };
+  const firstClose = createPlaybackSnapshot({
+    queueIds: pending.queueIds,
+    currentId: null,
+    position: 0,
+    shuffle: pending.shuffle,
+    shuffleBackupIds: pending.shuffleBackupIds,
+    pendingResume: pending,
+    repeatMode: pending.repeatMode
+  });
+  const restored = restorePlaybackSnapshot(firstClose, [
+    { id: 'track-a' }, { id: 'track-b' }, { id: 'track-c' }
+  ]);
+  const secondClose = createPlaybackSnapshot({
+    queueIds: restored.queueIds,
+    currentId: null,
+    position: 0,
+    shuffle: restored.shuffle,
+    shuffleBackupIds: restored.shuffleBackupIds,
+    pendingResume: restored,
+    repeatMode: restored.repeatMode
+  });
+  assert.equal(secondClose.currentId, 'track-b');
+  assert.equal(secondClose.position, 187);
+  assert.deepEqual(secondClose.queueIds, ['track-a', 'track-b', 'track-c']);
+  assert.deepEqual(secondClose.shuffleBackupIds, ['track-a', 'track-b', 'track-c']);
+  assert.equal(secondClose.repeatMode, 'all');
+});

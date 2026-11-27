@@ -38,6 +38,53 @@ function normalizeTrack(track) {
   return normalized;
 }
 
+function normalizeTrack(track, { exportMode = false, warnings = [] } = {}) {
+  if (!track || typeof track !== 'object' || Array.isArray(track)) return null;
+  const id = safeId(track.id);
+  if (!id) return null;
+  const normalized = {
+    id,
+    name: text(track.name || track.title, 240, 'Без названия'),
+    title: text(track.title || track.name, 160, 'Без названия'),
+    artist: text(track.artist, 120),
+    album: text(track.album, 120),
+    lyrics: String(track.lyrics ?? '').slice(0, 100000),
+    size: Number.isFinite(Number(track.size)) ? Math.max(0, Math.min(512 * 1024 * 1024, Number(track.size))) : 0,
+    lastModified: Number.isFinite(Number(track.lastModified)) ? Math.max(0, Number(track.lastModified)) : 0,
+    duration: Number.isFinite(Number(track.duration)) ? Math.max(0, Math.min(86400, Number(track.duration))) : 0,
+    addedAt: Number.isFinite(Number(track.addedAt)) ? Math.max(0, Number(track.addedAt)) : 0
+  };
+  if (track.url && track.externalUrl) throw new TypeError('В резервной копии у одной записи указан более чем один источник.');
+  if (track.url || track.externalUrl) {
+    const source = track.url || track.externalUrl;
+    const classified = classifyMusicUrl(source);
+    if (!classified.ok) {
+      if (!exportMode) throw new TypeError('Резервная копия содержит недопустимую музыкальную ссылку.');
+      warnings.push('Источник трека «' + normalized.title + '» пропущен: ссылка больше не поддерживается.');
+      return normalized;
+    }
+    if (classified.kind === 'direct-audio') {
+      if (track.externalUrl && exportMode) {
+        warnings.push('Ссылка трека «' + normalized.title + '» переклассифицирована как прямой аудиопоток.');
+      } else if (track.externalUrl && !exportMode) {
+        throw new TypeError('Закладка должна вести на поддерживаемую музыкальную платформу.');
+      }
+      normalized.url = classified.url;
+    } else if (classified.kind === 'music-site') {
+      if (track.url && exportMode) {
+        warnings.push('Старая ссылка трека «' + normalized.title + '» преобразована в закладку музыкальной платформы.');
+      } else if (track.url && !exportMode) {
+        throw new TypeError('Ссылка на поток не является прямым аудиофайлом.');
+      }
+      normalized.externalUrl = classified.url;
+    } else {
+      if (!exportMode) throw new TypeError('Резервная копия содержит недопустимый источник.');
+      warnings.push('Источник трека «' + normalized.title + '» пропущен.');
+    }
+  }
+  return normalized;
+}
+
 function normalizeSettings(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const volume = Number(source.volume);
@@ -78,6 +125,53 @@ function normalizeCollections(value, knownIds) {
   return result;
 }
 
+export function mergeBackupCollections({
+  currentFavorites = [],
+  backupFavorites = [],
+  currentPlaylists = [],
+  backupPlaylists = [],
+  currentHistory = [],
+  backupHistory = [],
+  availableTrackIds = []
+} = {}) {
+  const available = availableTrackIds instanceof Set
+    ? availableTrackIds
+    : new Set(Array.isArray(availableTrackIds) ? availableTrackIds : []);
+  const cleanFavorites = value => [...new Set((Array.isArray(value) ? value : [])
+    .map(safeId).filter(id => id && available.has(id)))];
+  const favorites = [...new Set([
+    ...cleanFavorites(currentFavorites),
+    ...cleanFavorites(backupFavorites)
+  ])].slice(0, 5000);
+
+  const playlists = [];
+  const byPlaylistId = new Map();
+  for (const row of [...(Array.isArray(currentPlaylists) ? currentPlaylists : []), ...(Array.isArray(backupPlaylists) ? backupPlaylists : [])]) {
+    const id = safeId(row?.id);
+    const name = text(row?.name, 60);
+    if (!id || !name) continue;
+    const trackIds = [...new Set((Array.isArray(row.trackIds) ? row.trackIds : [])
+      .map(safeId).filter(trackId => trackId && available.has(trackId)))].slice(0, 5000);
+    const previous = byPlaylistId.get(id);
+    if (previous) {
+      previous.trackIds = [...new Set([...previous.trackIds, ...trackIds])].slice(0, 5000);
+      if (!previous.description && row.description) previous.description = text(row.description, 160);
+      continue;
+    }
+    if (playlists.length >= 300) continue;
+    const normalized = { id, name, description: text(row.description, 160), trackIds };
+    byPlaylistId.set(id, normalized);
+    playlists.push(normalized);
+  }
+
+  const history = normalizeHistory([
+    ...(Array.isArray(currentHistory) ? currentHistory : []),
+    ...(Array.isArray(backupHistory) ? backupHistory : [])
+  ], available);
+
+  return { favorites, playlists, playHistory: history };
+}
+
 function checkSize(source) {
   const bytes = new TextEncoder().encode(source).byteLength;
   if (bytes > MAX_BACKUP_BYTES) throw new RangeError('Файл резервной копии превышает лимит 8 МиБ.');
@@ -94,8 +188,9 @@ export function createBackup({
 } = {}) {
   const safeTracks = [];
   const seen = new Set();
+  const warnings = [];
   for (const row of (Array.isArray(tracks) ? tracks : []).slice(0, 5000)) {
-    const track = normalizeTrack(row);
+    const track = normalizeTrack(row, { exportMode: true, warnings });
     if (track && !seen.has(track.id)) {
       seen.add(track.id);
       safeTracks.push(track);
@@ -112,7 +207,8 @@ export function createBackup({
     playlists: normalizeCollections(playlists, seen),
     settings: normalizeSettings(settings),
     playHistory: normalizeHistory(playHistory, seen),
-    sortMode: SORT_MODES.has(sortMode) ? sortMode : 'added-desc'
+    sortMode: SORT_MODES.has(sortMode) ? sortMode : 'added-desc',
+    warnings: warnings.slice(0, 100)
   };
   checkSize(JSON.stringify(backup));
   return backup;
@@ -150,6 +246,7 @@ export function parseBackup(source) {
     playlists: normalizeCollections(parsed.playlists, seen),
     settings: normalizeSettings(parsed.settings),
     playHistory: normalizeHistory(parsed.playHistory, seen),
-    sortMode: SORT_MODES.has(parsed.sortMode) ? parsed.sortMode : 'added-desc'
+    sortMode: SORT_MODES.has(parsed.sortMode) ? parsed.sortMode : 'added-desc',
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings.filter(item => typeof item === 'string').slice(0, 100).map(item => text(item, 180)) : []
   };
 }
