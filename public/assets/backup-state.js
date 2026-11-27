@@ -9,35 +9,6 @@ const SORT_MODES = new Set(['added-desc', 'title-asc', 'artist-asc', 'duration-d
 const text = (value, limit, fallback = '') => String(value ?? fallback).replace(/\0/g, '').trim().slice(0, limit);
 const safeId = value => typeof value === 'string' && value.trim() && value.length <= 256 ? value.trim() : null;
 
-function normalizeTrack(track) {
-  if (!track || typeof track !== 'object' || Array.isArray(track)) return null;
-  const id = safeId(track.id);
-  if (!id) return null;
-  const normalized = {
-    id,
-    name: text(track.name || track.title, 240, 'Без названия'),
-    title: text(track.title || track.name, 160, 'Без названия'),
-    artist: text(track.artist, 120),
-    album: text(track.album, 120),
-    lyrics: String(track.lyrics ?? '').slice(0, 100000),
-    size: Number.isFinite(Number(track.size)) ? Math.max(0, Math.min(512 * 1024 * 1024, Number(track.size))) : 0,
-    lastModified: Number.isFinite(Number(track.lastModified)) ? Math.max(0, Number(track.lastModified)) : 0,
-    duration: Number.isFinite(Number(track.duration)) ? Math.max(0, Math.min(86400, Number(track.duration))) : 0,
-    addedAt: Number.isFinite(Number(track.addedAt)) ? Math.max(0, Number(track.addedAt)) : 0
-  };
-  if (track.url && track.externalUrl) throw new TypeError('В резервной копии у одной записи указан более чем один источник.');
-  if (track.url || track.externalUrl) {
-    const source = track.url || track.externalUrl;
-    const classified = classifyMusicUrl(source);
-    if (!classified.ok) throw new TypeError('Резервная копия содержит недопустимую музыкальную ссылку.');
-    if (track.url && classified.kind !== 'direct-audio') throw new TypeError('Ссылка на поток не является прямым аудиофайлом.');
-    if (track.externalUrl && classified.kind !== 'music-site') throw new TypeError('Закладка не ведёт на поддерживаемую музыкальную платформу.');
-    if (track.url) normalized.url = classified.url;
-    else normalized.externalUrl = classified.url;
-  }
-  return normalized;
-}
-
 function normalizeTrack(track, { exportMode = false, warnings = [] } = {}) {
   if (!track || typeof track !== 'object' || Array.isArray(track)) return null;
   const id = safeId(track.id);
