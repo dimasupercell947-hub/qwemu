@@ -126,6 +126,8 @@ async fn install_update(app: tauri::AppHandle, expected_version: String) -> Resu
 }
 
 const MAX_OPENVERSE_DOWNLOAD_BYTES: u64 = 150 * 1024 * 1024;
+const AUDIO_RESPONSE_HEADERS_TIMEOUT: Duration = Duration::from_secs(30);
+const AUDIO_CHUNK_STALL_TIMEOUT: Duration = Duration::from_secs(45);
 const ALLOWED_OPENVERSE_LICENSES: &[&str] = &["cc0", "pdm", "by", "by-sa"];
 
 #[derive(serde::Deserialize)]
@@ -227,19 +229,19 @@ async fn get_public_audio_response(url: &reqwest::Url) -> Result<reqwest::Respon
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(60))
         .resolve_to_addrs(host, &addresses)
         .build()
         .map_err(|error| format!("Не удалось подготовить безопасное соединение: {error}"))?;
-    client
+    let request = client
         .get(url.clone())
-        .header(reqwest::header::USER_AGENT, "QWEMU-MUSIC/2.0.2")
+        .header(reqwest::header::USER_AGENT, "QWEMU-MUSIC/2.0.3")
         .header(
             reqwest::header::ACCEPT,
             "audio/*, application/ogg, application/octet-stream",
-        )
-        .send()
+        );
+    tokio::time::timeout(AUDIO_RESPONSE_HEADERS_TIMEOUT, request.send())
         .await
+        .map_err(|_| "Аудиоисточник не прислал заголовки за 30 секунд.".to_string())?
         .map_err(|error| format!("Не удалось загрузить аудиофайл: {error}"))
 }
 
@@ -308,8 +310,17 @@ fn safe_filename_stem(value: &str) -> String {
     stem
 }
 
-fn safe_audio_extension(file_type: &str, content_type: &str, url: &reqwest::Url) -> &'static str {
-    let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+fn safe_audio_extension(
+    file_type: &str,
+    content_type: &str,
+    url: &reqwest::Url,
+) -> Result<&'static str, String> {
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     let mime_extension = match mime.as_str() {
         "audio/mpeg" | "audio/mp3" | "audio/x-mp3" => "mp3",
         "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
@@ -318,42 +329,59 @@ fn safe_audio_extension(file_type: &str, content_type: &str, url: &reqwest::Url)
         "audio/opus" => "opus",
         "audio/aac" | "audio/aacp" => "aac",
         "audio/mp4" | "audio/x-m4a" | "video/mp4" => "m4a",
+        "audio/webm" => "webm",
+        "audio/3gpp" => "3gp",
         _ => "",
     };
     if !mime_extension.is_empty() {
-        return mime_extension;
+        return Ok(mime_extension);
     }
+
     let candidate = file_type.to_ascii_lowercase();
-    let mime_or_extension = candidate.split('/').last().unwrap_or(candidate.as_str());
+    let mime_or_extension = candidate
+        .rsplit('/')
+        .next()
+        .unwrap_or(candidate.as_str());
     let mapped = match mime_or_extension {
         "mpeg" | "mp3" | "x-mp3" | "mp32" => "mp3",
         "wav" | "x-wav" | "wave" => "wav",
         "flac" | "x-flac" => "flac",
-        "ogg" | "oga" => "ogg",
+        "ogg" => "ogg",
+        "oga" => "oga",
         "opus" => "opus",
         "aac" | "adts" => "aac",
         "mp4" | "m4a" | "x-m4a" | "mp4a-latm" => "m4a",
+        "webm" => "webm",
+        "3gp" => "3gp",
+        "m4b" => "m4b",
         _ => "",
     };
     if !mapped.is_empty() {
-        return mapped;
+        return Ok(mapped);
     }
-    match url
-        .path()
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "mp3" => "mp3",
-        "wav" => "wav",
-        "flac" => "flac",
-        "ogg" | "oga" => "ogg",
-        "opus" => "opus",
-        "aac" => "aac",
-        "m4a" | "mp4" => "m4a",
-        _ => "audio",
+
+    let path_segment = url.path().rsplit('/').next().unwrap_or("");
+    let path_extension = path_segment
+        .rsplit_once('.')
+        .map(|(_, extension)| extension)
+        .unwrap_or(path_segment)
+        .to_ascii_lowercase();
+    match path_extension.as_str() {
+        "mp3" | "mp32" => Ok("mp3"),
+        "wav" => Ok("wav"),
+        "flac" => Ok("flac"),
+        "ogg" => Ok("ogg"),
+        "oga" => Ok("oga"),
+        "opus" => Ok("opus"),
+        "aac" => Ok("aac"),
+        "m4a" | "mp4" => Ok("m4a"),
+        "webm" => Ok("webm"),
+        "3gp" => Ok("3gp"),
+        "m4b" => Ok("m4b"),
+        _ => Err(
+            "Не удалось определить поддерживаемый аудиоформат. Источник не будет сохранён как неизвестный файл."
+                .to_string(),
+        ),
     }
 }
 
@@ -382,7 +410,11 @@ fn reserve_unique_download_path(
         let path = folder.join(format!("{stem}{suffix}.{extension}"));
         let sidecar = folder.join(format!("{stem}{suffix}.license.txt"));
         let marker = folder.join(format!(".{stem}{suffix}.qwemu-reserve"));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker)
+        {
             Ok(file) => {
                 drop(file);
                 let reservation = DownloadReservation { marker };
@@ -455,6 +487,7 @@ async fn download_openverse_audio(
     {
         return Err("Размер аудиофайла превышает лимит 150 МиБ.".to_string());
     }
+    let final_media_url = response.url().clone();
 
     let download_root = app
         .path()
@@ -465,7 +498,7 @@ async fn download_openverse_audio(
         .await
         .map_err(|error| format!("Не удалось создать папку загрузок QWEMU PLUS: {error}"))?;
 
-    let extension = safe_audio_extension(&request.file_type, &content_type, &media_url);
+    let extension = safe_audio_extension(&request.file_type, &content_type, &final_media_url)?;
     let stem = safe_filename_stem(&request.title);
     let (destination, sidecar, _reservation) =
         reserve_unique_download_path(&folder, &stem, extension)?;
@@ -485,12 +518,25 @@ async fn download_openverse_audio(
     let mut response = response;
     let mut total = 0u64;
     loop {
-        let next = match response.chunk().await {
-            Ok(value) => value,
-            Err(error) => {
+        let next = match tokio::time::timeout(
+            AUDIO_CHUNK_STALL_TIMEOUT,
+            response.chunk(),
+        )
+        .await
+        {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
                 drop(file);
                 let _ = tokio::fs::remove_file(&part_path).await;
                 return Err(format!("Ошибка чтения аудиоисточника: {error}"));
+            }
+            Err(_) => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&part_path).await;
+                return Err(
+                    "Аудиоисточник не передавал данные 45 секунд. Загрузка остановлена; временный файл удалён."
+                        .to_string(),
+                );
             }
         };
         let Some(chunk) = next else {
@@ -623,11 +669,27 @@ mod openverse_download_tests {
     #[test]
     fn extensions_are_selected_from_a_whitelist() {
         let url = reqwest::Url::parse("https://cdn.example.org/music/track.mp3").unwrap();
-        assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &url), "mp3");
-        let extensionless = reqwest::Url::parse("https://cdn.example.org/api/track/123/mp32").unwrap();
-        assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &extensionless), "mp3");
-        assert_eq!(safe_audio_extension("audio/ogg", "application/ogg", &extensionless), "ogg");
-        assert_eq!(safe_audio_extension("unknown", "application/octet-stream", &url), "mp3");
+        assert_eq!(
+            safe_audio_extension("mp32", "audio/mpeg", &url),
+            Ok("mp3")
+        );
+        let extensionless =
+            reqwest::Url::parse("https://cdn.example.org/api/track/123/mp32").unwrap();
+        assert_eq!(
+            safe_audio_extension("mp32", "application/octet-stream", &extensionless),
+            Ok("mp3")
+        );
+        assert_eq!(
+            safe_audio_extension("audio/ogg", "application/ogg", &extensionless),
+            Ok("ogg")
+        );
+        assert_eq!(
+            safe_audio_extension("unknown", "application/octet-stream", &url),
+            Ok("mp3")
+        );
+        let unknown =
+            reqwest::Url::parse("https://cdn.example.org/api/track/123").unwrap();
+        assert!(safe_audio_extension("", "application/octet-stream", &unknown).is_err());
     }
 }
 
@@ -637,7 +699,10 @@ mod download_reservation_tests {
 
     #[test]
     fn concurrent_downloads_reserve_distinct_audio_and_attribution_names() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let folder = std::env::temp_dir().join(format!("qwemu-plus-reservation-{nonce}"));
         std::fs::create_dir_all(&folder).unwrap();
 
