@@ -309,7 +309,12 @@ fn safe_filename_stem(value: &str) -> String {
 }
 
 fn safe_audio_extension(file_type: &str, content_type: &str, url: &reqwest::Url) -> &'static str {
-    let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     let mime_extension = match mime.as_str() {
         "audio/mpeg" | "audio/mp3" | "audio/x-mp3" => "mp3",
         "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
@@ -382,7 +387,11 @@ fn reserve_unique_download_path(
         let path = folder.join(format!("{stem}{suffix}.{extension}"));
         let sidecar = folder.join(format!("{stem}{suffix}.license.txt"));
         let marker = folder.join(format!(".{stem}{suffix}.qwemu-reserve"));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker)
+        {
             Ok(file) => {
                 drop(file);
                 let reservation = DownloadReservation { marker };
@@ -624,10 +633,20 @@ mod openverse_download_tests {
     fn extensions_are_selected_from_a_whitelist() {
         let url = reqwest::Url::parse("https://cdn.example.org/music/track.mp3").unwrap();
         assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &url), "mp3");
-        let extensionless = reqwest::Url::parse("https://cdn.example.org/api/track/123/mp32").unwrap();
-        assert_eq!(safe_audio_extension("mp32", "audio/mpeg", &extensionless), "mp3");
-        assert_eq!(safe_audio_extension("audio/ogg", "application/ogg", &extensionless), "ogg");
-        assert_eq!(safe_audio_extension("unknown", "application/octet-stream", &url), "mp3");
+        let extensionless =
+            reqwest::Url::parse("https://cdn.example.org/api/track/123/mp32").unwrap();
+        assert_eq!(
+            safe_audio_extension("mp32", "audio/mpeg", &extensionless),
+            "mp3"
+        );
+        assert_eq!(
+            safe_audio_extension("audio/ogg", "application/ogg", &extensionless),
+            "ogg"
+        );
+        assert_eq!(
+            safe_audio_extension("unknown", "application/octet-stream", &url),
+            "mp3"
+        );
     }
 }
 
@@ -637,7 +656,10 @@ mod download_reservation_tests {
 
     #[test]
     fn concurrent_downloads_reserve_distinct_audio_and_attribution_names() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let folder = std::env::temp_dir().join(format!("qwemu-plus-reservation-{nonce}"));
         std::fs::create_dir_all(&folder).unwrap();
 
